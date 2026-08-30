@@ -16,7 +16,7 @@ Evidence must demonstrate the work without publishing credentials, tokens, perso
 | P1-08 | Runtime has least-privilege Firestore access | TODO | Sanitized role binding |
 | P1-09 | Secret Manager secret exists and runtime access is secret-specific | TODO | Secret metadata only; never value |
 | P1-10 | No user-managed service-account keys exist for the runtime | TODO | Sanitized key inventory |
-| P1-11 | AI Studio constitution v1.0 installed | TODO | Screenshot with version and recognizable text |
+| P1-11 | AI Studio constitution v1.1 installed | TODO | Screenshot with version and recognizable text |
 | P1-12 | AI Studio produces a security preflight before code | TODO | Exported/screenshot response using synthetic feature |
 | P1-13 | Personal/organization architecture approved | IN PROGRESS | `docs/architecture/SECURITY_ARCHITECTURE.md` |
 | P1-14 | Threat model reviewed and accepted | IN PROGRESS | `docs/security/THREAT_MODEL.md` |

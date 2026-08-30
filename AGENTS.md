@@ -6,7 +6,7 @@ Build Cognaxis as a production-oriented, security-first personal and organizatio
 
 ## Current phase
 
-The repository is currently establishing the Phase 1 security foundation. Do not generate application scaffolding, choose a framework, provision cloud resources, or implement product features unless the user explicitly advances the project into implementation.
+The project owner advanced Cognaxis into implementation on 30 August 2026. The approved stack is React, TypeScript, Vite, Express, Firebase Authentication/Admin, Firestore, the Google Gen AI SDK, Secret Manager, and Cloud Run on Node.js 22. Implement the security-critical Personal Gemini Journal MVP under the approved architecture. Cloud provisioning, GitHub synchronization, commits, pushes, publishing, and deployment still require explicit approval.
 
 ## Authoritative documents
 

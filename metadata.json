@@ -1,8 +1,0 @@
-{
-  "name": "Cognaxis",
-  "description": "Secure personal and organizational intelligence platform with permission-scoped memory, semantic retrieval, and tenant isolation.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+message_file="${1:?commit message file is required}"
+
+if grep -Eiq '^[[:space:]]*Co-authored-by:' "$message_file"; then
+  echo "Commit rejected: co-author trailers are disabled for this repository." >&2
+  exit 1
+fi
+
+if grep -Eiq '^[[:space:]]*(Generated-by|Developed-by|AI-assisted-by|Tool):' "$message_file"; then
+  echo "Commit rejected: automated-tool attribution trailers are disabled." >&2
+  exit 1
+fi

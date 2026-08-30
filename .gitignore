@@ -1,0 +1,46 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*service_account*.json
+firebase-adminsdk-*.json
+application_default_credentials.json
+
+# JavaScript / TypeScript
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Firebase and Google Cloud local state
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+.runtimeconfig.json
+
+# Test and emulator data
+.emulator-data/
+test-results/
+playwright-report/
+
+# IDE and operating system files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+.cache/
+.tmp/
+tmp/
+*.log

@@ -1,0 +1,8 @@
+# Require owner review for security-sensitive repository surfaces when branch rules are enabled.
+* @LubinRaj
+
+/docs/security/ @LubinRaj
+/docs/architecture/ @LubinRaj
+/.github/ @LubinRaj
+/.githooks/ @LubinRaj
+/.agents/ @LubinRaj

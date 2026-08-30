@@ -65,13 +65,13 @@ describe("journal API security boundary", () => {
   let repository: InMemoryJournalRepository;
   let verifier: TestVerifier;
   let model: TestModel;
-  let app: ReturnType<typeof createApp>;
+  let app: Awaited<ReturnType<typeof createApp>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repository = new InMemoryJournalRepository();
     verifier = new TestVerifier();
     model = new TestModel();
-    app = createApp({
+    app = await createApp({
       config,
       verifier,
       journalService: new JournalService(repository, model),

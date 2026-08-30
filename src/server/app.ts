@@ -19,7 +19,7 @@ export type AppDependencies = {
 
 type RequestWithContext = Request & { requestId?: string };
 
-export function createApp(dependencies: AppDependencies) {
+export async function createApp(dependencies: AppDependencies) {
   const { config, verifier, journalService } = dependencies;
   const app = express();
   app.disable("x-powered-by");
@@ -30,8 +30,8 @@ export function createApp(dependencies: AppDependencies) {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:", "https://lh3.googleusercontent.com"],
           connectSrc: [
             "'self'",
@@ -52,8 +52,16 @@ export function createApp(dependencies: AppDependencies) {
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || origin === config.APP_ORIGIN) callback(null, true);
-        else callback(new AppError(403, "ORIGIN_DENIED", "The request origin is not allowed."));
+        if (
+          !origin ||
+          origin === config.APP_ORIGIN ||
+          (config.NODE_ENV === "development" &&
+            (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")))
+        ) {
+          callback(null, true);
+        } else {
+          callback(new AppError(403, "ORIGIN_DENIED", "The request origin is not allowed."));
+        }
       },
       methods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowedHeaders: ["authorization", "content-type", "x-request-id"],
@@ -89,6 +97,13 @@ export function createApp(dependencies: AppDependencies) {
       response.setHeader("cache-control", "no-cache");
       response.sendFile(path.join(clientDirectory, "index.html"));
     });
+  } else if (config.NODE_ENV === "development") {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true, hmr: false },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
   }
 
   app.use((_request, response) => {

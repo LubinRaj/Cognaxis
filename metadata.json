@@ -1,0 +1,6 @@
+{
+  "name": "Cognaxis",
+  "description": "Secure personal intelligence journal with permission-scoped memory, semantic retrieval, and tenant isolation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

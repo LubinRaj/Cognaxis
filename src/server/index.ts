@@ -12,7 +12,7 @@ const repository = new FirestoreJournalRepository();
 const secrets = new GoogleSecretProvider(config);
 const model = new GeminiConversationModel(config, secrets);
 const journalService = new JournalService(repository, model);
-const app = createApp({ config, verifier, journalService });
+const app = await createApp({ config, verifier, journalService });
 
 const server = app.listen(config.PORT, "0.0.0.0", () => {
   console.log(JSON.stringify({ severity: "INFO", event: "server_started", port: config.PORT }));

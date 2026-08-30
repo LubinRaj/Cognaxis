@@ -14,9 +14,8 @@ const model = new GeminiConversationModel(config, secrets);
 const journalService = new JournalService(repository, model);
 const app = await createApp({ config, verifier, journalService });
 
-const PORT = 3000;
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(JSON.stringify({ severity: "INFO", event: "server_started", port: PORT }));
+const server = app.listen(config.PORT, "0.0.0.0", () => {
+  console.log(JSON.stringify({ severity: "INFO", event: "server_started", port: config.PORT }));
 });
 
 function shutdown(signal: string) {

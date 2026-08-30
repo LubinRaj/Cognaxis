@@ -3,7 +3,7 @@ import { z } from "zod";
 const environmentSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-    PORT: z.coerce.number().optional().default(3000).transform(() => 3000),
+    PORT: z.coerce.number().int().min(1).max(65535).optional().default(3000),
     APP_ORIGIN: z.string().optional(),
     GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),
     GEMINI_MODEL: z.string().min(1).default("gemini-3.7-flash"),

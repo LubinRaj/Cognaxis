@@ -31,7 +31,8 @@ export async function createApp(dependencies: AppDependencies) {
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "blob:", "https://images.unsplash.com", "https://*.googleusercontent.com"],
           connectSrc: [
             "'self'",
@@ -44,10 +45,10 @@ export async function createApp(dependencies: AppDependencies) {
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"],
-          frameAncestors: ["*"],
+          frameAncestors: config.NODE_ENV === "development" ? ["*"] : ["'none'"],
         },
       },
-      frameguard: false,
+      frameguard: config.NODE_ENV !== "development" ? { action: "deny" } : false,
       crossOriginEmbedderPolicy: false,
       referrerPolicy: { policy: "no-referrer" },
     }),
@@ -58,13 +59,13 @@ export async function createApp(dependencies: AppDependencies) {
         if (
           !origin ||
           origin === config.APP_ORIGIN ||
-          origin.includes("localhost") ||
-          origin.includes("127.0.0.1") ||
-          origin.endsWith(".run.app") ||
-          origin.endsWith(".google.com") ||
-          origin.endsWith(".web.app") ||
-          origin.endsWith(".firebaseapp.com") ||
-          config.NODE_ENV === "development"
+          (config.NODE_ENV === "development" &&
+            (origin.startsWith("http://localhost:") ||
+              origin.startsWith("http://127.0.0.1:") ||
+              origin.endsWith(".run.app") ||
+              origin.endsWith(".google.com") ||
+              origin.endsWith(".web.app") ||
+              origin.endsWith(".firebaseapp.com")))
         ) {
           callback(null, true);
         } else {
@@ -108,7 +109,10 @@ export async function createApp(dependencies: AppDependencies) {
   } else if (config.NODE_ENV === "development") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { 
+        middlewareMode: true, 
+        hmr: { port: 0 } 
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

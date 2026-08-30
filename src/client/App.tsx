@@ -5,20 +5,44 @@ import { SignIn } from "./components/SignIn";
 import { ConfigurationRequired } from "./components/ConfigurationRequired";
 import { JournalWorkspace } from "./components/JournalWorkspace";
 import { Loader2 } from "lucide-react";
+import { getFirebaseAuthErrorMessage } from "./lib/auth-errors";
+import { completeGoogleRedirect } from "./lib/google-sign-in";
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(!!auth);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth) {
-      return;
-    }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    const firebaseAuth = auth;
+    if (!firebaseAuth) return;
+
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    void completeGoogleRedirect(firebaseAuth)
+      .catch((error: unknown) => {
+        if (active) setAuthError(getFirebaseAuthErrorMessage(error));
+      })
+      .finally(() => {
+        if (!active) return;
+        unsubscribe = onAuthStateChanged(
+          firebaseAuth,
+          (currentUser) => {
+            setUser(currentUser);
+            setLoading(false);
+          },
+          () => {
+            setAuthError("Your session could not be verified. Please sign in again.");
+            setLoading(false);
+          },
+        );
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   if (!isFirebaseConfigured || !auth) {
@@ -34,7 +58,7 @@ export function App() {
   }
 
   if (!user) {
-    return <SignIn />;
+    return <SignIn authError={authError} onAuthAttempt={() => setAuthError(null)} />;
   }
 
   return <JournalWorkspace user={user} />;

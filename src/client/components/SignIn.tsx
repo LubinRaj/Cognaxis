@@ -1,8 +1,9 @@
-import { signInWithPopup } from "firebase/auth";
 import { useState, useRef, useEffect } from "react";
 import { auth, googleProvider } from "../lib/firebase";
 import { useTheme, type ThemeOption } from "../hooks/useTheme";
 import { MaterialIcon, type MaterialIconName } from "./MaterialIcon";
+import { getFirebaseAuthErrorMessage } from "../lib/auth-errors";
+import { beginGoogleSignIn } from "../lib/google-sign-in";
 
 const GoogleIcon = () => (
   <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
@@ -19,7 +20,12 @@ const CognaxisLogo = () => (
   </span>
 );
 
-export function SignIn() {
+type SignInProps = {
+  authError?: string | null;
+  onAuthAttempt?: () => void;
+};
+
+export function SignIn({ authError = null, onAuthAttempt }: SignInProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -48,26 +54,16 @@ export function SignIn() {
 
   async function signIn() {
     if (!auth) {
-      setError("Firebase Authentication is not initialized.");
+      setError("Sign-in is not configured for this environment.");
       return;
     }
     setBusy(true);
     setError(null);
+    onAuthAttempt?.();
     try {
-      await signInWithPopup(auth, googleProvider);
+      await beginGoogleSignIn(auth, googleProvider);
     } catch (err: unknown) {
-      const authError = err as { code?: string };
-      if (authError.code === "auth/popup-closed-by-user") {
-        setError("Sign-in popup was closed before completing.");
-      } else if (authError.code === "auth/popup-blocked") {
-        setError("Sign-in popup was blocked by your browser. Please allow popups for this site.");
-      } else if (authError.code === "auth/network-request-failed") {
-        setError("Network error. Please check your connection and try again.");
-      } else if (authError.code === "auth/unauthorized-domain") {
-        setError("This domain is not authorized for sign-in. Check Firebase configuration.");
-      } else {
-        setError("Google authentication did not complete. Please try again.");
-      }
+      setError(getFirebaseAuthErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -194,11 +190,11 @@ export function SignIn() {
                   <span className="flex items-center gap-1.5"><MaterialIcon name="lock" size={18} /> Private Vault</span>
                 </div>
 
-                {error && (
+                {(error ?? authError) && (
                   <div className="mt-6 rounded-2xl bg-error/10 p-4 text-left text-sm text-error" role="alert">
                     <div className="flex items-start gap-3">
                       <MaterialIcon name="error" size={20} />
-                      <p className="mt-0.5">{error}</p>
+                      <p className="mt-0.5">{error ?? authError}</p>
                     </div>
                   </div>
                 )}

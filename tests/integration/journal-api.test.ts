@@ -153,6 +153,7 @@ describe("journal API security boundary", () => {
 
     expect(response.headers["cache-control"]).toBe("private, no-store");
     expect(response.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(response.headers["cross-origin-opener-policy"]).toBe("same-origin-allow-popups");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["ratelimit-policy"]).toBeDefined();
   });

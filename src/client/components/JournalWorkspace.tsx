@@ -163,6 +163,18 @@ export function JournalWorkspace({ user }: Props) {
     }
   }
 
+  async function handleSignOut() {
+    if (!auth || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await signOut(auth);
+    } catch {
+      setError("Sign-out could not be completed. Please try again.");
+      setBusy(false);
+    }
+  }
+
   const canSummarize = Boolean(active && active.messages.length >= 2);
 
   return (
@@ -174,7 +186,7 @@ export function JournalWorkspace({ user }: Props) {
         activeSessionId={active?.id ?? null}
         onSelectSession={(id) => void openSession(id)}
         onCreateSession={() => void createSession()}
-        onSignOut={() => auth && void signOut(auth)}
+        onSignOut={() => void handleSignOut()}
         isBusy={busy}
         isLoading={loading}
         isOpenMobile={isMobileSidebarOpen}

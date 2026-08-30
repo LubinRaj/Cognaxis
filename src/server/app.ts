@@ -50,6 +50,7 @@ export async function createApp(dependencies: AppDependencies) {
       },
       frameguard: config.NODE_ENV !== "development" ? { action: "deny" } : false,
       crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
       referrerPolicy: { policy: "no-referrer" },
     }),
   );

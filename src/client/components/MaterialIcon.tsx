@@ -32,14 +32,12 @@ interface MaterialIconProps {
   name: MaterialIconName;
   className?: string;
   size?: number | string;
-  filled?: boolean;
 }
 
 export const MaterialIcon: React.FC<MaterialIconProps> = ({
   name,
   className = "",
   size = 24,
-  filled = false,
 }) => {
   const pixelSize = typeof size === "number" ? `${size}px` : size;
 

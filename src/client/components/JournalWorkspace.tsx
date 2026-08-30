@@ -1,5 +1,6 @@
 import { signOut, type User } from "firebase/auth";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { AlertCircle } from "lucide-react";
 import type {
   JournalMessage,
   JournalSession,
@@ -8,17 +9,15 @@ import type {
 } from "../../shared/schemas";
 import { ApiClient } from "../lib/api-client";
 import { auth } from "../lib/firebase";
+import { Sidebar } from "./Sidebar";
+import { Header } from "./Header";
+import { ConversationView } from "./ConversationView";
+import { Composer } from "./Composer";
+import { MemoryCard } from "./MemoryCard";
+import { DeleteConfirmModal } from "./DeleteConfirmModal";
+import { ExportModal } from "./ExportModal";
 
 type Props = { user: User };
-
-function initials(user: User) {
-  const source = user.displayName || user.email || "C";
-  return source
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
 
 export function JournalWorkspace({ user }: Props) {
   const api = useMemo(() => new ApiClient(() => user), [user]);
@@ -29,7 +28,11 @@ export function JournalWorkspace({ user }: Props) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
+
+  // Modals and UI state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -76,7 +79,6 @@ export function JournalWorkspace({ user }: Props) {
       setSessions((current) => [created, ...current]);
       setActive({ ...created, messages: [] });
       setSummary(null);
-      requestAnimationFrame(() => composer.current?.focus());
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to start a session.");
     } finally {
@@ -97,7 +99,10 @@ export function JournalWorkspace({ user }: Props) {
       content,
       createdAt: new Date().toISOString(),
     };
-    setActive((current) => (current ? { ...current, messages: [...current.messages, optimistic] } : current));
+    setActive((current) =>
+      current ? { ...current, messages: [...current.messages, optimistic] } : current
+    );
+
     try {
       const exchange = await api.addMessage(active.id, { content });
       setActive((current) =>
@@ -111,14 +116,14 @@ export function JournalWorkspace({ user }: Props) {
                 exchange.assistantMessage,
               ],
             }
-          : current,
+          : current
       );
       if (exchange.summary) setSummary(exchange.summary);
     } catch (requestError) {
       setActive((current) =>
         current
           ? { ...current, messages: current.messages.filter((item) => item.id !== optimistic.id) }
-          : current,
+          : current
       );
       setMessage(content);
       setError(requestError instanceof Error ? requestError.message : "Unable to send the message.");
@@ -142,7 +147,6 @@ export function JournalWorkspace({ user }: Props) {
 
   async function removeSession() {
     if (!active || busy) return;
-    if (!window.confirm("Delete this conversation and its derived summary? This cannot be undone.")) return;
     setBusy(true);
     setError(null);
     try {
@@ -150,6 +154,7 @@ export function JournalWorkspace({ user }: Props) {
       const remaining = sessions.filter((session) => session.id !== active.id);
       setSessions(remaining);
       setSummary(null);
+      setIsDeleteModalOpen(false);
       setActive(remaining[0] ? await api.getSession(remaining[0].id) : null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to delete the session.");
@@ -158,106 +163,99 @@ export function JournalWorkspace({ user }: Props) {
     }
   }
 
+  const canSummarize = Boolean(active && active.messages.length >= 2);
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-lockup"><span className="brand-mark small">C</span> Cognaxis</div>
-        <div className="scope-switcher" aria-label="Workspace scope">
-          <button className="scope-button active">Personal</button>
-          <button className="scope-button" disabled title="Organization setup is not implemented yet">Organization</button>
-        </div>
-        <button className="primary-button wide" onClick={() => void createSession()} disabled={busy}>
-          + New reflection
-        </button>
-        <nav className="session-list" aria-label="Journal sessions">
-          <p className="nav-label">Recent reflections</p>
-          {sessions.map((session) => (
-            <button
-              key={session.id}
-              className={`session-item ${active?.id === session.id ? "active" : ""}`}
-              onClick={() => void openSession(session.id)}
-              disabled={busy}
-            >
-              <span>{session.title}</span>
-              <small>{session.messageCount} messages</small>
-            </button>
-          ))}
-          {!loading && sessions.length === 0 ? (
-            <p className="empty-nav">Your reflections will appear here.</p>
-          ) : null}
-        </nav>
-        <div className="profile-card">
-          <span className="avatar">{initials(user)}</span>
-          <span><strong>{user.displayName || "Cognaxis user"}</strong><small>{user.email}</small></span>
-          <button className="text-button" onClick={() => auth && void signOut(auth)}>Sign out</button>
-        </div>
-      </aside>
+    <div className="flex h-screen w-screen overflow-hidden bg-[#060d0b] text-[#e8f3ef]">
+      {/* Sidebar Navigation */}
+      <Sidebar
+        user={user}
+        sessions={sessions}
+        activeSessionId={active?.id ?? null}
+        onSelectSession={(id) => void openSession(id)}
+        onCreateSession={() => void createSession()}
+        onSignOut={() => auth && void signOut(auth)}
+        isBusy={busy}
+        isLoading={loading}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
+      />
 
-      <main className="workspace">
-        <header className="workspace-header">
-          <div>
-            <p className="eyebrow">Personal workspace</p>
-            <h1>{active?.title ?? "A private place to think"}</h1>
+      {/* Main Workspace Area */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header
+          session={active}
+          onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
+          onSummarize={() => void summarize()}
+          onExport={() => setIsExportModalOpen(true)}
+          onDelete={() => setIsDeleteModalOpen(true)}
+          isBusy={busy}
+          canSummarize={canSummarize}
+        />
+
+        {/* Workspace Body */}
+        <main className="relative flex flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-8">
+          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col">
+            {/* Error Notification */}
+            {error && (
+              <div
+                className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-sm text-red-300"
+                role="alert"
+              >
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="h-5 w-5 shrink-0 text-red-400" />
+                  <span>{error}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setError(null)}
+                  className="text-xs text-red-300 underline hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Derived Memory Summary Card */}
+            {summary && <MemoryCard summary={summary} />}
+
+            {/* Messages Thread */}
+            <ConversationView
+              messages={active?.messages ?? []}
+              isBusy={busy}
+              isLoading={loading}
+              hasActiveSession={Boolean(active)}
+              onStartSession={() => void createSession()}
+            />
           </div>
-          <div className="header-actions">
-            <button className="secondary-button" onClick={() => void summarize()} disabled={!active || busy || (active?.messages.length ?? 0) < 2}>Summarize</button>
-            <button className="danger-button" onClick={() => void removeSession()} disabled={!active || busy}>Delete</button>
-          </div>
-        </header>
 
-        <section className="privacy-banner">
-          <span className="privacy-icon" aria-hidden="true">◇</span>
-          <div><strong>Personal scope selected</strong><p>Requests are authorized against your verified identity before data access.</p></div>
-        </section>
-
-        {error ? <div className="error-banner" role="alert">{error}</div> : null}
-
-        <section className="conversation" aria-live="polite">
-          {loading ? <p className="empty-state">Loading your private workspace…</p> : null}
-          {!loading && !active ? (
-            <div className="empty-state rich">
-              <span className="empty-symbol">✦</span>
-              <h2>Begin with what is on your mind</h2>
-              <p>Explore an idea, record a decision, or unpack a difficult question.</p>
-              <button className="primary-button" onClick={() => void createSession()} disabled={busy}>Start a reflection</button>
-            </div>
-          ) : null}
-          {active?.messages.map((item) => (
-            <article key={item.id} className={`message ${item.role}`}>
-              <span className="message-role">{item.role === "user" ? "You" : "Cognaxis"}</span>
-              <p>{item.content}</p>
-            </article>
-          ))}
-          {busy && active ? <p className="thinking">Cognaxis is thinking…</p> : null}
-        </section>
-
-        {summary ? (
-          <aside className="summary-card" aria-labelledby="summary-title">
-            <p className="eyebrow">Saved personal memory</p>
-            <h2 id="summary-title">{summary.title}</h2>
-            <p>{summary.summary}</p>
-            <div className="theme-list">{summary.themes.map((theme) => <span key={theme}>{theme}</span>)}</div>
-          </aside>
-        ) : null}
-
-        <form className="composer" onSubmit={(event) => void submit(event)}>
-          <label className="sr-only" htmlFor="journal-message">Write a journal message</label>
-          <textarea
-            id="journal-message"
-            ref={composer}
-            value={message}
-            maxLength={8_000}
-            placeholder={active ? "Write what you are thinking…" : "Start a reflection first"}
-            onChange={(event) => setMessage(event.target.value)}
-            disabled={!active || busy}
-            rows={2}
+          {/* Composer at Bottom */}
+          <Composer
+            message={message}
+            onChange={setMessage}
+            onSubmit={(e) => void submit(e)}
+            isBusy={busy}
+            hasActiveSession={Boolean(active)}
+            onQuickPrompt={(prompt) => setMessage(prompt)}
           />
-          <div className="composer-footer">
-            <span>{message.length.toLocaleString()} / 8,000</span>
-            <button className="primary-button" type="submit" disabled={!active || busy || !message.trim()}>Send</button>
-          </div>
-        </form>
-      </main>
+        </main>
+      </div>
+
+      {/* Modals */}
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={() => void removeSession()}
+        title={active?.title ?? "this reflection"}
+        isBusy={busy}
+      />
+
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        session={active}
+        summary={summary}
+      />
     </div>
   );
 }

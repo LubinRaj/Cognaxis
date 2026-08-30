@@ -32,19 +32,22 @@ export async function createApp(dependencies: AppDependencies) {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'", "'unsafe-inline'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", "data:", "https://lh3.googleusercontent.com"],
+          imgSrc: ["'self'", "data:", "blob:", "https://images.unsplash.com", "https://*.googleusercontent.com"],
           connectSrc: [
             "'self'",
             "https://identitytoolkit.googleapis.com",
             "https://securetoken.googleapis.com",
+            "https://*.googleapis.com",
+            "https://*.run.app",
           ],
-          frameSrc: ["https://accounts.google.com", "https://*.firebaseapp.com"],
+          frameSrc: ["'self'", "https://accounts.google.com", "https://*.firebaseapp.com"],
           objectSrc: ["'none'"],
-          baseUri: ["'none'"],
+          baseUri: ["'self'"],
           formAction: ["'self'"],
-          frameAncestors: ["'none'"],
+          frameAncestors: ["*"],
         },
       },
+      frameguard: false,
       crossOriginEmbedderPolicy: false,
       referrerPolicy: { policy: "no-referrer" },
     }),
@@ -55,8 +58,13 @@ export async function createApp(dependencies: AppDependencies) {
         if (
           !origin ||
           origin === config.APP_ORIGIN ||
-          (config.NODE_ENV === "development" &&
-            (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")))
+          origin.includes("localhost") ||
+          origin.includes("127.0.0.1") ||
+          origin.endsWith(".run.app") ||
+          origin.endsWith(".google.com") ||
+          origin.endsWith(".web.app") ||
+          origin.endsWith(".firebaseapp.com") ||
+          config.NODE_ENV === "development"
         ) {
           callback(null, true);
         } else {

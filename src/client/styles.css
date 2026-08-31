@@ -16,7 +16,11 @@
   --color-on-surface-variant: var(--sys-on-surface-variant);
   --color-outline: var(--sys-outline);
   --color-outline-variant: var(--sys-outline-variant);
-  
+  --color-error: var(--sys-error);
+  --color-on-error: var(--sys-on-error);
+  --color-error-container: var(--sys-error-container);
+  --color-on-error-container: var(--sys-on-error-container);
+
   --font-sans: "Roboto", system-ui, sans-serif;
   --font-display: "Outfit", "Roboto", system-ui, sans-serif;
 }
@@ -40,6 +44,11 @@
     
     --sys-outline: #79747e;
     --sys-outline-variant: #cac4d0;
+
+    --sys-error: #b3261e;
+    --sys-on-error: #ffffff;
+    --sys-error-container: #f9dedc;
+    --sys-on-error-container: #410e0b;
   }
 
   [data-theme="dark"] {
@@ -60,6 +69,11 @@
     
     --sys-outline: #938f99;
     --sys-outline-variant: #49454f;
+
+    --sys-error: #f2b8b5;
+    --sys-on-error: #601410;
+    --sys-error-container: #8c1d18;
+    --sys-on-error-container: #f9dedc;
   }
 
   body {

@@ -1,7 +1,8 @@
 # Cognaxis Security Test Plan
 
-Version: 1.0
-Status: Test design; implementation begins with the application foundation
+Version: 1.1
+Status: Suites A, A2, A3, A4, A5, B, G, H, and J implemented for the Personal Gemini Journal with
+FirebaseUI authentication. Remaining suites stay in design until their features are enabled.
 
 ## 1. Test strategy
 
@@ -28,6 +29,80 @@ Use the Firebase Emulator Suite for deterministic authentication and Firestore-r
 - incorrectly signed token fails;
 - revoked token fails on sensitive operations;
 - error contains no decoded claims, token, key material, or stack trace.
+
+Implemented by `tests/integration/journal-api.test.ts` and
+`tests/integration/verified-email-boundary.test.ts`.
+
+### A2. Email/password identity and verification gate
+
+Positive:
+
+- a verified email/password token reaches an authorized handler;
+- a verified Google token reaches an authorized handler;
+- account creation transitions to the verification screen and sends one Firebase verification email;
+- confirming verification reloads the Firebase user and forces a fresh ID token before the journal
+  opens.
+
+Negative and adversarial:
+
+- an unverified token receives `403 EMAIL_VERIFICATION_REQUIRED` on every private route;
+- an unverified request creates no repository record and invokes no model call;
+- `emailVerified`, `uid`, `email`, `signInProvider`, or a `principal` object supplied in a request
+  body or header is ignored or rejected;
+- a truthy non-boolean verification value is not accepted by the middleware or the client check;
+- error bodies contain no email address, claim name, `auth/` code, or stack frame.
+
+Implemented by `tests/integration/verified-email-boundary.test.ts`,
+`tests/unit/require-verified-email.test.ts`, and `tests/component/auth-verify-email.test.tsx`.
+
+### A3. Enumeration resistance and credential-error redaction
+
+- every credential outcome (`user-not-found`, `wrong-password`, `invalid-credential`,
+  `invalid-login-credentials`, `user-disabled`) resolves to one identical message;
+- no rendered message states that an account does or does not exist, or that a password was wrong;
+- a Firebase code absent from the FirebaseUI translation map never reaches the user as a raw
+  provider message;
+- the password-reset confirmation is byte-identical for a known and an unknown address;
+- network, rate-limit, and configuration failures — which cannot indicate account existence — are
+  still reported accurately;
+- provider-conflict codes map to one message that names no provider and confirms no account.
+
+Implemented by `tests/unit/auth-errors.test.ts`, `tests/component/auth-sign-in.test.tsx`,
+`tests/component/auth-sign-up.test.tsx`, and `tests/component/auth-forgot-password.test.tsx`.
+
+### A4. Session lifecycle, refresh bounds, and state clearing
+
+- a current ID token is requested immediately before every protected call;
+- the token appears only in the `Authorization` header, never in a URL, and never in
+  `localStorage`, `sessionStorage`, or any application store;
+- a `401 UNAUTHENTICATED` triggers exactly one forced refresh and one replay;
+- no retry occurs for `RECENT_AUTH_REQUIRED`, `EMAIL_VERIFICATION_REQUIRED`, `FORBIDDEN`,
+  `RATE_LIMITED`, validation failures, or server errors;
+- a second failure ends the session, clears private state, and shows the session-expired screen;
+- switching from User A to User B leaves no User A record in the document and sends only User B's
+  token;
+- sign-out clears in-memory journal state before the Firebase sign-out call;
+- the bootstrap state shows no signed-out or private content and offers a bounded retry.
+
+Implemented by `tests/unit/token-retry-policy.test.ts`, `tests/unit/api-client.test.ts`,
+`tests/component/auth-session-isolation.test.tsx`, and `tests/component/auth-bootstrap.test.tsx`.
+
+### A5. Authentication interface and accessibility
+
+- every authentication screen reports no serious or critical automated accessibility violation;
+- every input has a visible label and the correct `autocomplete` token;
+- each field error is associated with its input through `aria-describedby` and announced with
+  `role="alert"`;
+- the password visibility control is a keyboard-operable button with a distinct name per field;
+- submit controls disable while a request is pending, and repeated clicks issue one request;
+- resend controls honour a cooldown after both success and failure;
+- the theme control works on every authentication screen without a reload and stores no password,
+  token, or email address;
+- the configuration-required screen names only missing variables, exposes no value, and offers no
+  input that could receive a pasted secret.
+
+Implemented by `tests/component/auth-theme-accessibility.test.tsx`,
+`tests/component/auth-configuration-required.test.tsx`, and the per-screen component suites.
 
 ### B. Personal isolation
 
@@ -126,11 +201,17 @@ Every pull request must run:
 - full-history secret scan;
 - lockfile/dependency review after application dependencies exist;
 - unit and integration suites relevant to changed security behavior;
+- component suites for every authentication screen when authentication code changes;
 - rules tests whenever Firestore or Storage rules change.
 
 Before deployment, additionally run:
 
-- production build and bundle inspection;
+- production build and automated client bundle inspection
+  (`scripts/security/inspect-client-bundle.mjs`, run by `npm run security:check`), which fails if
+  FirebaseUI reaches the entry chunk or if any asset contains a server-side credential marker;
+- Firebase Emulator Suite end-to-end authentication journeys;
+- one controlled staging smoke test covering real Google OAuth, one real verification email, and
+  one real password-reset email using synthetic accounts;
 - container vulnerability scan;
 - infrastructure and IAM review;
 - deployed synthetic-account smoke tests;

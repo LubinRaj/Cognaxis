@@ -1,67 +1,47 @@
-import { useEffect, useState } from "react";
-import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth, isFirebaseConfigured } from "./lib/firebase";
-import { SignIn } from "./components/SignIn";
+import { Suspense, lazy } from "react";
+import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { AuthLoading } from "./components/auth/AuthLoading";
+import { AuthSurfaceBoundary } from "./components/auth/AuthSurfaceBoundary";
 import { ConfigurationRequired } from "./components/ConfigurationRequired";
 import { JournalWorkspace } from "./components/JournalWorkspace";
-import { Loader2 } from "lucide-react";
-import { getFirebaseAuthErrorMessage } from "./lib/auth-errors";
-import { completeGoogleRedirect } from "./lib/google-sign-in";
+import { LandingPage } from "./components/LandingPage";
+
+// FirebaseUI and every authentication screen load only for the unauthenticated surface. The
+// authenticated workspace never pulls the credential form code into its bundle.
+const AuthSurface = lazy(() => import("./components/auth/AuthSurface"));
+
+function AppRoutes() {
+  const { state, user, bootstrapStalled, retryBootstrap, send } = useAuth();
+
+  if (state === "CONFIGURATION_MISSING") return <ConfigurationRequired />;
+
+  if (state === "BOOTSTRAPPING") {
+    return <AuthLoading stalled={bootstrapStalled} onRetry={retryBootstrap} />;
+  }
+
+  if (state === "AUTHENTICATED" && user) {
+    return <JournalWorkspace key={user.uid} user={user} />;
+  }
+
+  if (state === "SIGNED_OUT_LANDING") {
+    return <LandingPage onOpenAuth={() => send({ type: "OPEN_SIGN_IN" })} />;
+  }
+
+  return (
+    <AuthSurfaceBoundary>
+      <Suspense fallback={<AuthLoading />}>
+        <AuthSurface />
+      </Suspense>
+    </AuthSurfaceBoundary>
+  );
+}
 
 export function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(!!auth);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const firebaseAuth = auth;
-    if (!firebaseAuth) return;
-
-    let active = true;
-    let unsubscribe: (() => void) | undefined;
-
-    void completeGoogleRedirect(firebaseAuth)
-      .catch((error: unknown) => {
-        if (active) setAuthError(getFirebaseAuthErrorMessage(error));
-      })
-      .finally(() => {
-        if (!active) return;
-        unsubscribe = onAuthStateChanged(
-          firebaseAuth,
-          (currentUser) => {
-            setUser(currentUser);
-            setLoading(false);
-          },
-          () => {
-            setAuthError("Your session could not be verified. Please sign in again.");
-            setLoading(false);
-          },
-        );
-      });
-
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, []);
-
-  if (!isFirebaseConfigured || !auth) {
-    return <ConfigurationRequired />;
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <SignIn authError={authError} onAuthAttempt={() => setAuthError(null)} />;
-  }
-
-  return <JournalWorkspace user={user} />;
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  );
 }
 
 export default App;

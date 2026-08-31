@@ -26,7 +26,15 @@ export type MaterialIconName =
   | "menu"
   | "search"
   | "settings"
-  | "logout";
+  | "logout"
+  | "arrow_back"
+  | "visibility"
+  | "visibility_off"
+  | "mark_email_unread"
+  | "refresh"
+  | "check_circle"
+  | "radio_button_unchecked"
+  | "lock_reset";
 
 interface MaterialIconProps {
   name: MaterialIconName;
@@ -404,6 +412,119 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="m17 7-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
+        </svg>
+      );
+
+    case "arrow_back":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+        </svg>
+      );
+
+    case "visibility":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
+        </svg>
+      );
+
+    case "visibility_off":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 6.5c2.76 0 5 2.24 5 5 0 .51-.1 1-.24 1.46l3.06 3.06c1.39-1.23 2.49-2.77 3.18-4.53C21.27 7.11 17 4 12 4c-1.27 0-2.49.2-3.64.57l2.17 2.17c.47-.14.96-.24 1.47-.24zM2.71 3.16a.996.996 0 0 0 0 1.41l1.97 1.97A11.892 11.892 0 0 0 1 11.5C2.73 15.89 7 19 12 19c1.52 0 2.97-.3 4.31-.82l2.72 2.72a.996.996 0 1 0 1.41-1.41L4.13 3.16a.996.996 0 0 0-1.42 0zM12 16.5a5 5 0 0 1-4.55-7.07l1.63 1.63c-.05.3-.08.61-.08.94 0 1.66 1.34 3 3 3 .33 0 .64-.03.94-.08l1.63 1.63c-.75.36-1.6.55-2.57.55z" />
+        </svg>
+      );
+
+    case "mark_email_unread":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9.87a4.5 4.5 0 0 1-2 .57V18H4V8l8 5 4.09-2.56A4.5 4.5 0 0 1 15.5 8.5c0-.17.01-.34.03-.5H4V6h11.53A4.5 4.5 0 0 1 20 2.5 4.5 4.5 0 0 1 20 11V4z" />
+          <circle cx="20" cy="6" r="3" />
+        </svg>
+      );
+
+    case "refresh":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M17.65 6.35A7.958 7.958 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+        </svg>
+      );
+
+    case "check_circle":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+        </svg>
+      );
+
+    case "radio_button_unchecked":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" />
+        </svg>
+      );
+
+    case "lock_reset":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 3a5 5 0 0 0-5 5v1H6c-1.1 0-2 .9-2 2v9c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-9c0-1.1-.9-2-2-2h-1V8a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v1H9V8a3 3 0 0 1 3-3zm0 8a2 2 0 0 1 1 3.73V18h-2v-1.27A2 2 0 0 1 12 13z" />
         </svg>
       );
 

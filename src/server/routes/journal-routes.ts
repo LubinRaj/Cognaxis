@@ -9,6 +9,7 @@ import {
 import { AppError } from "../errors.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { requireRecentAuthentication } from "../middleware/recent-auth.js";
+import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
 import { validateBody } from "../middleware/validate.js";
 import type { AuthenticatedRequest, TokenVerifier } from "../types.js";
 import type { JournalService } from "../services/journal-service.js";
@@ -47,6 +48,9 @@ export function createJournalRouter(
       },
     }),
   );
+  // Verification is enforced after authentication and rate limiting, and before any route handler,
+  // repository read, or model call can run.
+  router.use(requireVerifiedEmail);
   router.use((_request, response, next) => {
     response.setHeader("cache-control", "private, no-store");
     next();
@@ -103,6 +107,7 @@ export function createJournalRouter(
   router.delete(
     "/sessions/:sessionId",
     authenticate(verifier, true),
+    requireVerifiedEmail,
     requireRecentAuthentication,
     route(async (request, response) => {
       await service.deleteSession(request.principal.uid, sessionId(request));

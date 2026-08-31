@@ -13,12 +13,17 @@ export class FirebaseTokenVerifier implements TokenVerifier {
     }
   }
 
+  // Every field of the principal is derived from the verified token. Nothing here is read from the
+  // request body, query, or headers.
   async verify(token: string, checkRevoked = false): Promise<AuthenticatedPrincipal> {
     const decoded = await getAuth().verifyIdToken(token, checkRevoked);
+    const signInProvider = decoded.firebase.sign_in_provider;
 
     return {
       uid: decoded.uid,
       email: typeof decoded.email === "string" ? decoded.email : undefined,
+      emailVerified: decoded.email_verified === true,
+      signInProvider: typeof signInProvider === "string" ? signInProvider : undefined,
       issuedAt: decoded.iat,
       authTime: decoded.auth_time,
     };

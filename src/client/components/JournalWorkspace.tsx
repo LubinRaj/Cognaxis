@@ -1,4 +1,4 @@
-import { signOut, type User } from "firebase/auth";
+import type { User } from "firebase/auth";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { AlertCircle } from "lucide-react";
 import type {
@@ -7,8 +7,8 @@ import type {
   PersonalMemory,
   SessionDetail,
 } from "../../shared/schemas";
+import { useAuth } from "../auth/AuthProvider";
 import { ApiClient } from "../lib/api-client";
-import { auth } from "../lib/firebase";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { ConversationView } from "./ConversationView";
@@ -20,7 +20,22 @@ import { ExportModal } from "./ExportModal";
 type Props = { user: User };
 
 export function JournalWorkspace({ user }: Props) {
-  const api = useMemo(() => new ApiClient(() => user), [user]);
+  const {
+    signOutAndReset,
+    isSigningOut,
+    reportSessionExpired,
+    reportEmailVerificationRequired,
+    globalError,
+    clearGlobalError,
+  } = useAuth();
+  const api = useMemo(
+    () =>
+      new ApiClient(() => user, {
+        onSessionExpired: reportSessionExpired,
+        onEmailVerificationRequired: reportEmailVerificationRequired,
+      }),
+    [user, reportSessionExpired, reportEmailVerificationRequired],
+  );
   const [sessions, setSessions] = useState<JournalSession[]>([]);
   const [active, setActive] = useState<SessionDetail | null>(null);
   const [message, setMessage] = useState("");
@@ -164,15 +179,13 @@ export function JournalWorkspace({ user }: Props) {
   }
 
   async function handleSignOut() {
-    if (!auth || busy) return;
-    setBusy(true);
+    if (isSigningOut) return;
     setError(null);
-    try {
-      await signOut(auth);
-    } catch {
-      setError("Sign-out could not be completed. Please try again.");
-      setBusy(false);
-    }
+    setSessions([]);
+    setActive(null);
+    setSummary(null);
+    setMessage("");
+    await signOutAndReset();
   }
 
   const canSummarize = Boolean(active && active.messages.length >= 2);
@@ -187,7 +200,7 @@ export function JournalWorkspace({ user }: Props) {
         onSelectSession={(id) => void openSession(id)}
         onCreateSession={() => void createSession()}
         onSignOut={() => void handleSignOut()}
-        isBusy={busy}
+        isBusy={busy || isSigningOut}
         isLoading={loading}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -209,18 +222,21 @@ export function JournalWorkspace({ user }: Props) {
         <main className="relative flex flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-8">
           <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col">
             {/* Error Notification */}
-            {error && (
+            {(error ?? globalError) && (
               <div
                 className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-sm text-red-300"
                 role="alert"
               >
                 <div className="flex items-center gap-2.5">
                   <AlertCircle className="h-5 w-5 shrink-0 text-red-400" />
-                  <span>{error}</span>
+                  <span>{error ?? globalError}</span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setError(null)}
+                  onClick={() => {
+                    setError(null);
+                    clearGlobalError();
+                  }}
                   className="text-xs text-red-300 underline hover:text-white"
                 >
                   Dismiss

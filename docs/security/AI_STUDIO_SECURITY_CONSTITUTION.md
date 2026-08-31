@@ -1,7 +1,7 @@
 # Cognaxis AI Studio Security Constitution
 
-Version: 1.1
-Status: Phase 1 baseline
+Version: 1.2
+Status: Phase 2 baseline, extended for Firebase email/password authentication
 Purpose: Copy the constitution below into the persistent development instructions used for the Cognaxis build. Update it whenever the architecture, services, data classes, or external integrations change.
 
 Custom instructions shape generated designs and code. They do not provide runtime authorization. Every control described here must be implemented and tested in deterministic application, datastore, IAM, or deployment layers.
@@ -45,12 +45,19 @@ APPROVED TRUST MODEL
 - Gemini has no general Firestore, IAM, Secret Manager, shell, network, or deployment tool.
 
 IDENTITY AND SESSION RULES
-- Use Firebase Authentication with Google Sign-In. Never implement password storage.
+- Use Firebase Authentication with the approved providers: Google Sign-In and email/password.
+- Never implement password storage, password hashing, password comparison, a credential proxy, or an application-owned login, signup, refresh-token, forgot-password, or password-reset endpoint. Those operations belong to Firebase Authentication and must never reach a Cognaxis endpoint.
+- Email/password accounts must verify their email address before any private data access. Derive the verification status only from the verified token claim and enforce it in server middleware that runs before every handler, repository call, and model call. The browser's user.emailVerified value is presentation only.
+- Password reset and email verification use Firebase-managed hosted action links on authorized domains. Do not supply an application continuation URL that could become an operator-controlled redirect, and never log, forward, or capture an action link or action code.
+- Enumeration-resistant messaging is mandatory. Every credential outcome resolves to one identical message, the password-reset confirmation is identical whether or not an account exists, and no interface string states that an address is or is not registered. Never disable email-enumeration protection to restore deprecated provider-discovery behavior.
+- Credential-stuffing, password-spraying, and reset or verification email flooding must be bounded and monitored. Client cooldowns are advisory; the provider controls are the enforcing layer.
+- Third-party authentication components may render an untranslated provider error verbatim. Route every displayed authentication failure through the application error adapter and verify that no raw provider message, error code, or project identifier can reach the user.
 - Reject missing, malformed, expired, incorrectly issued, or incorrectly targeted ID tokens.
-- Never authorize using uid, email, ownerUid, role, scope, or visibility supplied by the client.
+- Never authorize using uid, email, emailVerified, ownerUid, role, scope, sign-in provider, or visibility supplied by the client. A sign-in provider is diagnostic metadata, never an authorization role.
 - Treat an orgId from the client only as a requested resource identifier. Verify active membership and the required role server-side before any organization read, retrieval, model invocation, or write.
 - Resolve organization roles from server-controlled membership records, not from writable profile fields or stale client state.
-- Let the Firebase SDK manage token refresh and persistence. Never manually store ID tokens in browser storage, URLs, logs, analytics, or error reports, and clear application state on sign-out.
+- Let the Firebase SDK manage token refresh and persistence. Never read, serialize, store, or transmit a refresh token, never manually store ID tokens in browser storage, URLs, logs, analytics, or error reports, and clear application state on sign-out and on any account change.
+- Obtain a current ID token immediately before each protected request. On an authentication rejection that the server raised before executing the request, force at most one token refresh and one replay. Never retry an authorization denial, verification requirement, recent-authentication requirement, rate limit, validation failure, or server error, and never create an unbounded refresh loop. When recovery fails, clear private state and return the user to reauthentication.
 - App Check may be used as abuse defense but never as a substitute for authentication or authorization.
 - Require recent authentication or revocation-aware verification for sensitive membership, role, export, or destructive operations.
 
@@ -168,6 +175,11 @@ TEST AND RELEASE GATES
 Every security-relevant workflow requires a positive test and adversarial negative tests. At minimum verify:
 - unauthenticated requests are denied;
 - forged, expired, wrong-project, and revoked tokens are handled correctly;
+- a valid but unverified email identity is denied before any repository or model call;
+- client-supplied identity or verification fields are ignored;
+- every credential failure renders one identical, enumeration-resistant message and no raw provider text;
+- token refresh is bounded to a single retry and never loops;
+- no private interface state from one account survives a sign-out or an account switch;
 - User A cannot read, update, delete, summarize, retrieve, or infer User B's personal data;
 - Org A members cannot access Org B by changing IDs or object references;
 - organization administrators cannot access members' personal data;
@@ -215,3 +227,11 @@ When this is installed in Google AI Studio, capture evidence that shows:
 ## Maintenance rule
 
 Create a new version whenever a service or capability is added, including direct Firestore access, App Check, uploads, voice, email, calendar, URL retrieval, plugins, external actions, or a new memory store. Record the version change in the Phase 1 evidence checklist.
+
+## Version history
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-08-30 | Initial Phase 1 constitution |
+| 1.1 | 2026-08-30 | Phase 1 baseline refinements |
+| 1.2 | 2026-08-31 | Firebase email/password provider approved. Added the prohibition on an application-owned authentication API, the verified-email access gate, Firebase-managed action links, mandatory enumeration-resistant messaging, credential-stuffing and reset-flood bounds, third-party error redaction, refresh-token handling rules, and the bounded single-retry token policy. |

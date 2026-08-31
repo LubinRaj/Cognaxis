@@ -1,7 +1,7 @@
 # Cognaxis Threat Model
 
-Version: 1.0
-Status: Phase 1 baseline
+Version: 1.1
+Status: Phase 2 baseline, extended for email/password authentication
 Review trigger: Any change to identity, authorization, data model, retrieval, Gemini tools, uploads, voice, integrations, IAM, or deployment
 
 ## 1. Method and assurance boundary
@@ -16,6 +16,10 @@ This model uses asset and trust-boundary analysis with STRIDE-style web/cloud th
 | Organization updates, decisions, blockers, insights | Confidential | Tenant breach, business harm, surveillance misuse |
 | Embeddings and derived facts | Same as source | Inference or retrieval leakage |
 | Firebase ID tokens and invite tokens | Restricted | Account or membership abuse |
+| Account passwords | Restricted credential | Account takeover; handled only by Firebase Authentication and never stored, hashed, compared, proxied, or logged by Cognaxis |
+| Firebase refresh tokens | Restricted credential | Persistent account takeover; managed only by the Firebase JavaScript SDK |
+| Email-verification and password-reset action links | Restricted, short-lived | Account takeover; Firebase-managed, authorized domains only, never logged or captured |
+| Email verification status | Security-critical claim | Unverified access to private data; derived only from a verified token and enforced server-side |
 | Gemini/API credentials and cloud identity | Restricted | Data access, cost abuse, compromise |
 | Membership and role records | Security-critical | Privilege escalation |
 | Provenance and audit events | Integrity-critical | False evidence, repudiation |
@@ -25,6 +29,10 @@ This model uses asset and trust-boundary analysis with STRIDE-style web/cloud th
 
 - anonymous internet user;
 - authenticated ordinary user;
+- unverified email/password account holder;
+- attacker performing credential stuffing or password spraying;
+- attacker enumerating registered email addresses;
+- attacker attempting provider or account confusion;
 - malicious or compromised user;
 - organization member;
 - organization owner/administrator;
@@ -36,13 +44,15 @@ This model uses asset and trust-boundary analysis with STRIDE-style web/cloud th
 
 ## 4. Trust boundaries
 
-1. Browser to Firebase Authentication.
-2. Browser to public Cloud Run endpoint.
-3. Cloud Run authorization layer to Firestore.
-4. Cloud Run retrieval layer to semantic memory.
-5. Cloud Run prompt builder to Gemini.
-6. Cloud Run runtime identity to Secret Manager and Google Cloud APIs.
-7. Repository and CI to deployment artifacts.
+1. Browser to Firebase Authentication, including every password, registration, verification, and
+   reset operation. No credential crosses the Cognaxis backend boundary.
+2. Firebase Authentication popup, redirect, or hosted action page returning to the browser.
+3. Browser to public Cloud Run endpoint.
+4. Cloud Run authorization layer to Firestore.
+5. Cloud Run retrieval layer to semantic memory.
+6. Cloud Run prompt builder to Gemini.
+7. Cloud Run runtime identity to Secret Manager and Google Cloud APIs.
+8. Repository and CI to deployment artifacts.
 
 ## 5. Threat register
 
@@ -75,13 +85,19 @@ This model uses asset and trust-boundary analysis with STRIDE-style web/cloud th
 | T25 | Organization analytics become employee surveillance. | Analyze only organization-scope records; prohibit private-source ingestion and sensitive employee profiling. | Dataset lineage proves no personal sources; prohibited insight tests. | Organization-authored content may still contain personal information. |
 | T26 | Race condition changes membership between authorization and write. | Transactional authorization check or immediate recheck; idempotency and optimistic concurrency. | Concurrent remove/member-action tests. | Distributed timing edge cases require datastore-specific testing. |
 | T27 | Cached response or CDN serves confidential content to another user. | No public caching for authenticated responses; private/no-store headers; cache key includes verified scope if caching is approved. | Response-header and cross-session cache tests. | Browser history and local device compromise remain user-environment risks. |
+| T28 | Attacker performs credential stuffing or password spraying against email/password accounts. | Passwords are handled only by Firebase Authentication; Firebase project password policy in `Require` mode; Firebase's own attempt throttling; generic `Too many attempts` copy; submit controls disabled while a request is pending so a single client cannot amplify attempts. | Repeated-failure component tests show identical generic copy and a single in-flight request; Firebase quota and monitoring evidence recorded before release. | Firebase Authentication is a public endpoint. Distributed abuse is bounded by provider controls, and App Check remains a deferred defence in depth. |
+| T29 | Attacker determines whether an email address is registered by comparing messages, timing, or HTTP behaviour. | Firebase email-enumeration protection enabled in the project; a Cognaxis FirebaseUI locale that replaces every enumeration-revealing string; a Cognaxis error adapter that maps every credential outcome to one identical message; the forgot-password flow shows the same confirmation whether or not the address exists. | Unit tests assert one identical message across `user-not-found`, `wrong-password`, `invalid-credential`, and `user-disabled`; component tests compare the reset confirmation for known and unknown addresses. | Account creation still fails for an address already in use. The message is generic, but request timing may differ; this is a residual provider-level signal. |
+| T30 | Attacker floods a victim with verification or password-reset emails. | Firebase owns sending and its own quotas; the interface enforces a sixty-second cooldown that also applies after a failure so a rejected attempt cannot be retried immediately; the reset request is only ever issued from a submitted form. | Component tests confirm the cooldown engages after both success and failure and that the control is disabled while cooling down. | Client cooldowns are advisory. Firebase quotas and monitoring are the enforcing control. |
+| T31 | An account with an unverified email reaches private journal data. | `requireVerifiedEmail` middleware placed after authentication and before every handler, repository call, and model call; the value comes only from the verified token claim and is never accepted from a body, query, or header; the client state machine holds the account on a verification screen; a server `403` returns the client to that screen. | Integration tests assert `403 EMAIL_VERIFICATION_REQUIRED` on every private route, that no repository record or model call is created, and that client-supplied `emailVerified`, `uid`, `email`, and provider fields are ignored. | A verified address can later be lost or transferred at the mail provider; Firebase revocation and token expiry bound the exposure window. |
+| T32 | Google and email/password identities for one address are merged or confused. | One account per email in the Firebase project; no client-supplied email is ever used to merge identities; provider-conflict codes map to a single safe message that names no provider and confirms no account; FirebaseUI legacy sign-in recovery is not enabled. | Unit tests cover `account-exists-with-different-credential`, `credential-already-in-use`, and `provider-already-linked` mapping. | Automatic linking is not implemented. A user holding both identities for one address may need support assistance; this limitation is accepted for this iteration. |
+| T33 | Private interface state from a previous account remains visible after an account switch or sign-out. | The workspace renders only in the authenticated state and is keyed by the verified `uid`, so a change of identity remounts it with empty state; sign-out clears in-memory journal state before the Firebase sign-out call; the session-expired screen is reached only after private state has been discarded. | Component tests switch from User A to User B and assert User A's records are absent from the document and that every subsequent request carries User B's token. | Browser memory forensics and screenshots taken before sign-out remain outside application control. |
 
 ## 6. Release blockers
 
 Release is blocked by:
 
 - a known Critical or High finding;
-- any failing T03, T04, T05, T07, T08, T10, T11, T13, T19, or T20 verification;
+- any failing T03, T04, T05, T07, T08, T10, T11, T13, T19, T20, T29, T31, or T33 verification;
 - any committed or deployed credential exposure;
 - undocumented external data transfer or retention;
 - a security claim without implementation and evidence;
@@ -92,3 +108,4 @@ Release is blocked by:
 | Version | Date | Scope | Reviewer | Outcome |
 |---|---|---|---|---|
 | 1.0 | 2026-08-30 | Phase 1 architecture baseline | Project owner review pending | Proposed |
+| 1.1 | 2026-08-31 | Email/password authentication, email verification, password reset (T28–T33) | Project owner review pending | Proposed |

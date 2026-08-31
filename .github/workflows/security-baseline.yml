@@ -66,6 +66,7 @@ jobs:
           npm run lint
           npm test
           npm run build
+          npm run security:check
 
       - name: Block high-severity dependency findings
         run: npm audit --audit-level=high

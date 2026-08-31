@@ -3,6 +3,8 @@ import type { Request } from "express";
 export type AuthenticatedPrincipal = {
   uid: string;
   email?: string;
+  emailVerified: boolean;
+  signInProvider?: string;
   issuedAt: number;
   authTime: number;
 };

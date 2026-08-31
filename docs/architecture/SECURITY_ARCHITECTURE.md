@@ -18,6 +18,9 @@ The primary assurance objective is to prevent data or derived intelligence from 
 Included:
 
 - Firebase Google Sign-In;
+- Firebase email/password registration and sign-in;
+- Firebase-managed email verification, with private data gated on the verified token claim;
+- Firebase-managed password reset through hosted action links;
 - authenticated multi-turn Gemini interaction;
 - personal sessions, messages, summaries, and memory;
 - explicit personal/organization workspace selection;
@@ -41,12 +44,20 @@ Gated until separately threat-modeled:
 ```text
 Untrusted browser
   |
-  | 1. Google Sign-In through Firebase Authentication
+  | Credential operations never touch the Cognaxis backend:
+  |   Google Sign-In        --> Firebase Authentication
+  |   Email/password sign-up --> Firebase Authentication
+  |   Email/password sign-in --> Firebase Authentication
+  |   Password reset request --> Firebase Authentication (hosted action link)
+  |   Email verification     --> Firebase Authentication (hosted action link)
+  |
+  | 1. Firebase returns a session; the SDK owns the refresh token
   | 2. HTTPS request with Firebase ID token
   v
 Public Cloud Run web/API boundary
   |
-  |-- verify token; derive uid
+  |-- verify token; derive uid, email_verified, sign_in_provider
+  |-- require a verified email before any private journal access
   |-- validate schema and bounds
   |-- resolve workspace
   |-- verify organization membership and role where applicable
@@ -73,12 +84,34 @@ Public Cloud Run web/API boundary
 
 ### Authentication
 
-- Firebase Authentication issues an ID token after Google Sign-In.
+- Firebase Authentication issues an ID token after Google Sign-In or email/password sign-in.
+- Cognaxis has no `/login`, `/signup`, `/refresh-token`, `/forgot-password`, or `/password-reset`
+  endpoint. Password creation, comparison, storage, reset, and email verification are performed by
+  Firebase Authentication, and no Cognaxis endpoint ever receives a password or a refresh token.
 - The browser sends the token in `Authorization: Bearer <token>` over HTTPS.
 - The backend verifies format, signature, expiry, issuer, and audience using the Firebase Admin SDK.
-- The backend uses only the verified token's `uid` as the effective user identity.
+- The backend uses only the verified token's `uid` as the effective user identity, and derives
+  `emailVerified` and `signInProvider` from the same verified claims.
+- The sign-in provider is diagnostic metadata. It is never an authorization role.
+
+### Email verification as an access gate
+
+Private journal routes require `email_verified === true` in the verified token. The middleware runs
+after authentication and rate limiting and before any handler, repository read, or model call, and
+returns a generic `403 EMAIL_VERIFICATION_REQUIRED`. The browser's `user.emailVerified` value only
+improves the interface; it is never the authorization decision. Google accounts satisfy the gate
+through their own verified Firebase claim.
 
 Sensitive membership, role, export, or deletion operations may require recent authentication and revocation-aware verification. App Check may reduce automated abuse but does not replace identity or authorization.
+
+### Session and token lifecycle
+
+The Firebase JavaScript SDK owns persistence and refresh. Cognaxis declares its persistence chain
+explicitly (`indexedDBLocalPersistence`, then `browserLocalPersistence`) and otherwise never reads,
+serialises, stores, transmits, or logs an ID token or refresh token. The API client requests a
+current token immediately before each protected call. A `401 UNAUTHENTICATED` — which the server
+emits before any handler runs — triggers exactly one forced refresh and one replay; any further
+failure clears private client state and returns the user to reauthentication.
 
 ### Organization authorization
 

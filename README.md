@@ -70,7 +70,8 @@ Fill only the required local values. Never place service-account JSON, private k
 npm run dev
 ```
 
-The browser runs at `http://localhost:5173`; Vite proxies `/api` to the local API on port `3000`.
+The browser and API run together at `http://localhost:3000`; in development, Express mounts Vite
+as middleware so the frontend and `/api` remain on the same local origin.
 
 Without Firebase configuration, Cognaxis intentionally displays a configuration-required screen instead of a fake authenticated demo.
 

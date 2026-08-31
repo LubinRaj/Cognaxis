@@ -28,8 +28,12 @@ class TestVerifier implements TokenVerifier {
   async verify(token: string, checkRevoked = false): Promise<AuthenticatedPrincipal> {
     this.checks.push(checkRevoked);
     if (!token.startsWith("token-")) throw new Error("invalid token");
+    const uid = token.slice("token-".length);
     return {
-      uid: token.slice("token-".length),
+      uid,
+      email: `${uid}@example.test`,
+      emailVerified: true,
+      signInProvider: "password",
       issuedAt: nowSeconds,
       authTime: nowSeconds,
     };

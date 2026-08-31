@@ -1,59 +1,91 @@
-import { Lock, KeyRound } from "lucide-react";
+import { missingFirebaseConfigKeys } from "../lib/firebase";
+import { MaterialIcon } from "./MaterialIcon";
 
 export function ConfigurationRequired() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4 sm:p-8 dark:bg-slate-950 font-sans text-slate-900 dark:text-slate-100">
+    <main className="bg-surface text-on-surface flex min-h-screen items-center justify-center p-4 font-sans sm:p-8">
       <section
-        className="w-full max-w-xl rounded-3xl border border-slate-200/60 bg-white p-8 shadow-xl dark:border-slate-800/60 dark:bg-[#0b1120]"
+        className="border-outline-variant bg-surface-container-low w-full max-w-xl rounded-[28px] border p-6 shadow-sm sm:p-8"
         aria-labelledby="configuration-title"
       >
-        <div className="flex items-center gap-4 border-b border-slate-100 pb-6 dark:border-slate-800">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-500">
-            <KeyRound className="h-6 w-6" />
+        <div className="border-outline-variant flex items-center gap-4 border-b pb-6">
+          <div
+            className="bg-error-container text-on-error-container flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
+            aria-hidden="true"
+          >
+            <MaterialIcon name="vpn_key" size={24} />
           </div>
           <div>
-            <div className="text-xs font-semibold tracking-widest text-slate-500 uppercase dark:text-slate-400">
-              Diagnostic Screen
-            </div>
-            <h1 id="configuration-title" className="text-xl font-bold sm:text-2xl mt-1">
-              Firebase Configuration Missing
+            <p className="text-on-surface-variant text-xs font-semibold tracking-widest uppercase">
+              Diagnostic screen
+            </p>
+            <h1
+              id="configuration-title"
+              className="font-display mt-1 text-xl font-medium sm:text-2xl"
+            >
+              Firebase configuration missing
             </h1>
           </div>
         </div>
-        
-        <p className="mt-6 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          Cognaxis enforces real, cryptographic identity verification and intentionally refuses to simulate authentication. The required public Firebase configuration variables are missing.
+
+        <p className="text-on-surface-variant mt-6 text-sm leading-relaxed">
+          Cognaxis enforces real, cryptographic identity verification and intentionally refuses to
+          simulate authentication. The public Firebase configuration below has not been supplied to
+          this build.
         </p>
 
-        <div className="mt-6 space-y-4">
-          <div className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-900/50">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold font-mono text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              1
-            </div>
-            <div className="text-sm">
-              <p className="font-semibold text-slate-900 dark:text-slate-200">Provide Public Config</p>
-              <p className="mt-1 text-slate-600 dark:text-slate-400">
-                Supply the standard Firebase configuration identifiers via environment variables.
-              </p>
-            </div>
+        {missingFirebaseConfigKeys.length > 0 && (
+          <div className="border-outline-variant bg-surface-container mt-6 rounded-2xl border p-4">
+            <h2 className="text-on-surface text-sm font-medium">Missing variable names</h2>
+            <ul className="text-on-surface-variant mt-3 space-y-1.5 font-mono text-sm">
+              {missingFirebaseConfigKeys.map((key) => (
+                <li key={key}>{key}</li>
+              ))}
+            </ul>
           </div>
-          <div className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-900/50">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold font-mono text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              2
-            </div>
-            <div className="text-sm">
-              <p className="font-semibold text-slate-900 dark:text-slate-200">Restart Dev Server</p>
-              <p className="mt-1 text-slate-600 dark:text-slate-400">
-                Restart the application to reload the newly configured environment variables.
-              </p>
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="mt-8 flex items-center gap-3 rounded-xl bg-slate-100 p-4 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-          <Lock className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />
-          <span className="font-medium">Fail-Closed Invariant: The application will not mount without proper authentication configuration.</span>
-        </div>
+        <ol className="mt-6 space-y-4">
+          <li className="border-outline-variant bg-surface-container flex items-start gap-3 rounded-2xl border p-4">
+            <span
+              className="bg-surface-container-high text-on-surface flex h-6 w-6 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold"
+              aria-hidden="true"
+            >
+              1
+            </span>
+            <div className="text-sm">
+              <p className="text-on-surface font-medium">Provide the public configuration</p>
+              <p className="text-on-surface-variant mt-1">
+                Set the listed environment variables in your local environment file. Never place a
+                secret value in a variable that is exposed to the browser.
+              </p>
+            </div>
+          </li>
+          <li className="border-outline-variant bg-surface-container flex items-start gap-3 rounded-2xl border p-4">
+            <span
+              className="bg-surface-container-high text-on-surface flex h-6 w-6 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold"
+              aria-hidden="true"
+            >
+              2
+            </span>
+            <div className="text-sm">
+              <p className="text-on-surface font-medium">Restart the development server</p>
+              <p className="text-on-surface-variant mt-1">
+                Restart the application so the newly configured environment variables are loaded.
+              </p>
+            </div>
+          </li>
+        </ol>
+
+        <p className="bg-surface-container text-on-surface-variant mt-8 flex items-center gap-3 rounded-2xl p-4 text-sm">
+          <span aria-hidden="true" className="shrink-0">
+            <MaterialIcon name="lock" size={20} />
+          </span>
+          <span className="font-medium">
+            Fail-closed invariant: the application will not mount an authenticated experience
+            without a working authentication configuration.
+          </span>
+        </p>
       </section>
     </main>
   );

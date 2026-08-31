@@ -1,0 +1,338 @@
+/*
+ * FirebaseUI ships a Tailwind theme layer that redefines --color-primary and switches its own
+ * dark palette with prefers-color-scheme. Cognaxis switches themes with a data-theme attribute.
+ * The declarations below are deliberately unlayered so they win over both @layer theme blocks in
+ * either direction, which keeps the Cognaxis palette authoritative for the whole application and
+ * makes FirebaseUI follow the in-app theme control rather than the operating system.
+ */
+:root {
+  --fui-primary: var(--sys-primary);
+  --fui-primary-hover: color-mix(in oklab, var(--sys-primary) 88%, var(--sys-on-surface));
+  --fui-primary-surface: var(--sys-on-primary);
+  --fui-text: var(--sys-on-surface);
+  --fui-text-muted: var(--sys-on-surface-variant);
+  --fui-background: var(--sys-surface-container-low);
+  --fui-border: var(--sys-outline-variant);
+  --fui-input: var(--sys-outline);
+  --fui-error: var(--sys-error);
+  --fui-radius: 0.75rem;
+  --fui-radius-card: 1.75rem;
+
+  --color-primary: var(--sys-primary);
+  --color-on-primary: var(--sys-on-primary);
+  --color-surface: var(--sys-surface);
+  --color-surface-container-low: var(--sys-surface-container-low);
+  --color-surface-container: var(--sys-surface-container);
+  --color-surface-container-high: var(--sys-surface-container-high);
+  --color-on-surface: var(--sys-on-surface);
+  --color-on-surface-variant: var(--sys-on-surface-variant);
+  --color-outline: var(--sys-outline);
+  --color-outline-variant: var(--sys-outline-variant);
+  --color-error: var(--sys-error);
+  --radius: 0.25rem;
+}
+
+.cx-auth-card .fui-screen,
+.cx-auth-card .fui-content {
+  max-width: none;
+  margin: 0;
+}
+
+.cx-auth-card .fui-card {
+  background-color: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+.cx-auth-card .fui-card__header {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.cx-auth-card .fui-card__title {
+  font-family: var(--font-display, "Outfit", system-ui, sans-serif);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--sys-on-surface);
+}
+
+.cx-auth-card .fui-card__subtitle {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .fui-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cx-auth-card .cx-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* FirebaseUI's base `space-y-6` rule adds margins between every form child. Cognaxis uses flex
+ * gap for the same purpose, so reset those inherited margins instead of stacking both systems. */
+.cx-auth-card .cx-form > :not(:last-child) {
+  margin-block: 0;
+}
+
+.cx-auth-card .cx-form__submit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cx-auth-card .cx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cx-auth-card .cx-field__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cx-auth-card .cx-field__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sys-on-surface);
+}
+
+.cx-auth-card .cx-field__description {
+  font-size: 0.75rem;
+  color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .cx-field__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.cx-auth-card .cx-field__control input {
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0 1rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--sys-on-surface);
+  background-color: var(--sys-surface);
+  border: 1px solid var(--sys-outline);
+  border-radius: 0.75rem;
+  box-shadow: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.cx-auth-card .cx-field__control input:hover {
+  border-color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .cx-field__control input:focus-visible {
+  outline: none;
+  border-color: var(--sys-primary);
+  box-shadow: 0 0 0 2px var(--sys-primary);
+}
+
+.cx-auth-card .cx-field__control input[aria-invalid="true"] {
+  border-color: var(--sys-error);
+}
+
+.cx-auth-card .cx-field__control input[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 2px var(--sys-error);
+}
+
+.cx-auth-card .cx-field__control input[data-has-reveal="true"] {
+  padding-inline-end: 3.25rem;
+}
+
+.cx-auth-card .cx-field__control .cx-password-reveal {
+  position: absolute;
+  inset-inline-end: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--sys-on-surface-variant);
+  cursor: pointer;
+}
+
+.cx-auth-card .cx-password-reveal:hover {
+  background-color: var(--sys-surface-container-high);
+  color: var(--sys-on-surface);
+}
+
+.cx-auth-card .cx-password-reveal:focus-visible {
+  outline: 2px solid var(--sys-primary);
+  outline-offset: 2px;
+}
+
+.cx-auth-card .fui-button {
+  display: flex;
+  width: 100%;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--sys-on-primary);
+  background-color: var(--sys-primary);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.cx-auth-card .fui-button:hover:not(:disabled) {
+  background-color: var(--fui-primary-hover);
+}
+
+.cx-auth-card .fui-button:focus-visible {
+  outline: 2px solid var(--sys-primary);
+  outline-offset: 2px;
+}
+
+.cx-auth-card .fui-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cx-auth-card .fui-button--secondary,
+.cx-auth-card .fui-provider__button {
+  color: var(--sys-on-surface);
+  background-color: var(--sys-surface);
+  border: 1px solid var(--sys-outline);
+}
+
+.cx-auth-card .fui-button--secondary:hover:not(:disabled),
+.cx-auth-card .fui-provider__button:hover:not(:disabled) {
+  background-color: var(--sys-surface-container-high);
+  border-color: var(--sys-outline);
+}
+
+.cx-auth-card .fui-provider__button svg,
+.cx-auth-card .fui-provider__button img {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.cx-auth-card .fui-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.cx-auth-card .fui-divider__line {
+  flex: 1 1 0%;
+  height: 1px;
+  background-color: var(--sys-outline-variant);
+}
+
+.cx-auth-card .fui-divider__text {
+  font-size: 0.75rem;
+  color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .fui-form__action {
+  align-self: flex-start;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: none;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sys-primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.cx-auth-card .fui-form__action:hover {
+  text-decoration: underline;
+}
+
+.cx-auth-card .fui-form__action:focus-visible {
+  outline: 2px solid var(--sys-primary);
+  outline-offset: 2px;
+}
+
+.cx-auth-card .fui-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-align: start;
+  color: var(--sys-error);
+}
+
+.cx-auth-card .fui-error::before {
+  content: "";
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.125rem;
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 1 21h22L12 2Zm0 6 6.5 11h-13L12 8Zm-1 3v4h2v-4h-2Zm0 5v2h2v-2h-2Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 1 21h22L12 2Zm0 6 6.5 11h-13L12 8Zm-1 3v4h2v-4h-2Zm0 5v2h2v-2h-2Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.cx-auth-card .fui-success {
+  font-size: 0.875rem;
+  text-align: start;
+  color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .fui-policies {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: start;
+  color: var(--sys-on-surface-variant);
+}
+
+.cx-auth-card .fui-policies a,
+.cx-auth-card .fui-policies button {
+  color: var(--sys-on-surface);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+.cx-auth-card .fui-policies a:focus-visible,
+.cx-auth-card .fui-policies button:focus-visible {
+  outline: 2px solid var(--sys-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-auth-card .fui-button,
+  .cx-auth-card .cx-field__control input {
+    transition: none;
+  }
+}

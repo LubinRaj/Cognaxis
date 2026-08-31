@@ -42,6 +42,10 @@ else
   fi
 fi
 
+if ! node scripts/security/inspect-client-bundle.mjs; then
+  failure=1
+fi
+
 if [[ "$failure" -ne 0 ]]; then
   exit 1
 fi

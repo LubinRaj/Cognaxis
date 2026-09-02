@@ -91,7 +91,7 @@ mutation performed.
 ## Manual configuration and verification still pending
 
 1. Firebase Console: enable email-enumeration protection, set the password policy to `Require`
-   with a 12–128 character range, and brand both email templates. See
+   with the approved 8–128 character range, and brand both email templates. See
    `docs/deployment/CLOUD_SETUP_CHECKLIST.md` section 2.1.
 2. Install a Java runtime and `firebase-tools`, then run the Firebase Emulator Suite end-to-end
    authentication journeys.

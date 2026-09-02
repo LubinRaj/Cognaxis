@@ -20,9 +20,28 @@
   --color-on-error: var(--sys-on-error);
   --color-error-container: var(--sys-error-container);
   --color-on-error-container: var(--sys-on-error-container);
+  --color-success: var(--sys-success);
+  --color-on-success: var(--sys-on-success);
+  --color-success-container: var(--sys-success-container);
+  --color-on-success-container: var(--sys-on-success-container);
+  --color-warning: var(--sys-warning);
+  --color-on-warning: var(--sys-on-warning);
+  --color-warning-container: var(--sys-warning-container);
+  --color-on-warning-container: var(--sys-on-warning-container);
+  --color-scrim: var(--sys-scrim);
+  --color-focus-ring: var(--sys-focus-ring);
 
   --font-sans: "Roboto", system-ui, sans-serif;
   --font-display: "Outfit", "Roboto", system-ui, sans-serif;
+
+  --radius-control: 0.5rem;
+  --radius-field: 0.75rem;
+  --radius-card: 1rem;
+  --radius-dialog: 1.5rem;
+
+  --duration-feedback: 120ms;
+  --duration-menu: 160ms;
+  --duration-overlay: 200ms;
 }
 
 @layer base {
@@ -49,6 +68,19 @@
     --sys-on-error: #ffffff;
     --sys-error-container: #f9dedc;
     --sys-on-error-container: #410e0b;
+
+    --sys-success: #146c2e;
+    --sys-on-success: #ffffff;
+    --sys-success-container: #c4eed0;
+    --sys-on-success-container: #072711;
+
+    --sys-warning: #7a5900;
+    --sys-on-warning: #ffffff;
+    --sys-warning-container: #ffdf99;
+    --sys-on-warning-container: #291800;
+
+    --sys-scrim: rgb(0 0 0 / 40%);
+    --sys-focus-ring: var(--sys-primary);
   }
 
   [data-theme="dark"] {
@@ -74,12 +106,26 @@
     --sys-on-error: #601410;
     --sys-error-container: #8c1d18;
     --sys-on-error-container: #f9dedc;
+
+    --sys-success: #6dd58c;
+    --sys-on-success: #003914;
+    --sys-success-container: #0f5223;
+    --sys-on-success-container: #c4eed0;
+
+    --sys-warning: #f5bd42;
+    --sys-on-warning: #3f2e00;
+    --sys-warning-container: #5c4200;
+    --sys-on-warning-container: #ffdf99;
+
+    --sys-scrim: rgb(0 0 0 / 60%);
+    --sys-focus-ring: var(--sys-primary);
   }
 
   body {
     font-family: var(--font-sans);
     margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
     overflow-x: hidden;
     color: var(--sys-on-surface);
     background-color: var(--sys-surface);
@@ -88,6 +134,19 @@
 
   * {
     box-sizing: border-box;
+  }
+
+  /* Motion clarifies appearance and state. When the user asks for reduced motion, every
+     translation, scale, and stagger is removed and only immediate state changes remain. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   /* Material Symbols Defaults */

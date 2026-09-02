@@ -34,7 +34,21 @@ export type MaterialIconName =
   | "refresh"
   | "check_circle"
   | "radio_button_unchecked"
-  | "lock_reset";
+  | "lock_reset"
+  | "info"
+  | "warning"
+  | "add"
+  | "more_vert"
+  | "download"
+  | "delete"
+  | "content_copy"
+  | "send"
+  | "expand_more"
+  | "expand_less"
+  | "chat_bubble"
+  | "person"
+  | "description"
+  | "checklist";
 
 interface MaterialIconProps {
   name: MaterialIconName;
@@ -285,7 +299,7 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           className={className}
           aria-hidden="true"
         >
-          <path d="M17.81 4.47c-.08 0-.16-.02-.23-.06C15.66 3.42 14 3 12.01 3c-1.98 0-3.86.47-5.57 1.41-.24.13-.54.04-.68-.2-.13-.24-.04-.55.2-.68C7.82 2.52 9.86 2 12.01 2c2.13 0 3.99.47 6.03 1.52.25.13.34.43.21.67-.09.18-.26.28-.44.28zM3.5 9.72c-.1 0-.2-.03-.29-.09-.23-.16-.28-.47-.12-.7.99-1.4 2.25-2.5 3.75-3.27C9.9 4.04 12 4 12.06 4c.28 0 .5.22.5.5s-.22.5-.5.5c-.1 0-1.99.05-4.88 1.5-1.39.71-2.56 1.73-3.48 3.03-.08.12-.2.19-.34.19zm16.99 1.13c-.22 0-.42-.15-.48-.37-.75-2.59-2.39-4.34-4.87-5.2-1.7-.59-3.49-.66-5.32-.2-2.12.54-3.79 1.84-4.96 3.86-.14.24-.45.32-.69.18-.24-.14-.32-.45-.18-.69 1.33-2.3 3.23-3.78 5.65-4.4 2.08-.52 4.12-.44 6.06.23 2.82.98 4.69 2.97 5.54 5.92.08.27-.08.55-.35.63-.07.02-.13.04-.2.04zm-9.59 10.74c-.16 0-.32-.08-.41-.23-.74-1.22-1.13-2.61-1.13-4.01 0-2.48 2.02-4.5 4.5-4.5s4.5 2.02 4.5 4.5c0 1.25-.39 2.52-1.12 3.65-.15.23-.46.3-.69.15-.23-.15-.3-.46-.15-.69.61-.95.94-2.02.94-3.11 0-1.93-1.57-3.5-3.5-3.5s-3.5 1.57-3.5 3.5c0 1.19.33 2.37.96 3.41.15.24.07.55-.17.7-.09.07-.19.1-.28.1zm-4.34-4.66c-.07 0-.15-.02-.22-.05-.25-.12-.36-.41-.25-.66.86-1.91 1.3-3.99 1.3-6.19 0-.28.22-.5.5-.5s.5.22.5.5c0 2.33-.47 4.54-1.38 6.56-.08.19-.27.3-.45.3zm12.35.48c-.2 0-.39-.12-.46-.32-.78-2.09-1.18-4.22-1.18-6.33 0-1.85-.59-3.23-1.77-4.1-.98-.73-2.32-1.1-3.98-1.1-1.86 0-3.35.46-4.44 1.37-1.13.94-1.7 2.29-1.7 4.01 0 1.07-.2 2.14-.6 3.19-.1.26-.39.39-.65.29-.26-.1-.39-.39-.29-.65.45-1.18.68-2.38.68-3.58 0-2.03.68-3.63 2.02-4.75 1.29-1.07 3.05-1.61 5.23-1.61 1.95 0 3.52.44 4.67 1.3 1.39 1.03 2.09 2.66 2.09 4.83 0 2.23.42 4.49 1.25 6.7.1.26-.04.55-.3.65-.06.02-.11.04-.17.04z" />
+          <path d="M17.81 4.47c-.08 0-.16-.02-.23-.06C15.66 3.42 14 3 12.01 3c-1.98 0-3.86.47-5.57 1.41-.24.13-.54.04-.68-.2-.13-.24-.04-.55.2-.68C7.82 2.52 9.86 2 12.01 2c2.13 0 3.99.47 6.03 1.52.25.13.34.43.21.67-.09.18-.26.28-.44.28zM3.5 9.72c-.1 0-.2-.03-.29-.09-.23-.16-.28-.47-.12-.7.99-1.4 2.25-2.5 3.75-3.27C9.98 4.04 14 4.03 17.15 5.65c1.5.77 2.76 1.86 3.75 3.25.16.22.11.54-.12.7-.23.16-.54.11-.7-.12-.9-1.26-2.04-2.25-3.39-2.94-2.87-1.47-6.54-1.47-9.4.01-1.36.7-2.5 1.7-3.4 2.96-.08.14-.23.21-.39.21zm6.25 12.07c-.13 0-.26-.05-.35-.15-.87-.87-1.34-1.43-2.01-2.64-.69-1.23-1.05-2.73-1.05-4.34 0-2.97 2.54-5.39 5.66-5.39s5.66 2.42 5.66 5.39c0 .28-.22.5-.5.5s-.5-.22-.5-.5c0-2.42-2.09-4.39-4.66-4.39-2.57 0-4.66 1.97-4.66 4.39 0 1.44.32 2.77.93 3.85.64 1.15 1.08 1.64 1.85 2.42.19.2.19.51 0 .71-.11.1-.24.15-.37.15zm7.17-1.85c-1.19 0-2.24-.3-3.1-.89-1.49-1.01-2.38-2.65-2.38-4.39 0-.28.22-.5.5-.5s.5.22.5.5c0 1.41.72 2.74 1.94 3.56.71.48 1.54.71 2.54.71.24 0 .64-.03 1.04-.1.27-.05.53.13.58.41.05.27-.13.53-.41.58-.57.11-1.07.12-1.21.12zM14.91 22c-.04 0-.09-.01-.13-.02-1.59-.44-2.63-1.03-3.72-2.1-1.4-1.39-2.17-3.24-2.17-5.22 0-1.62 1.38-2.94 3.08-2.94 1.7 0 3.08 1.32 3.08 2.94 0 1.07.93 1.94 2.08 1.94s2.08-.87 2.08-1.94c0-3.77-3.25-6.83-7.25-6.83-2.84 0-5.44 1.58-6.61 4.03-.39.81-.59 1.76-.59 2.8 0 .78.07 2.01.67 3.61.1.26-.03.55-.29.64-.26.1-.55-.04-.64-.29-.49-1.31-.73-2.61-.73-3.96 0-1.2.23-2.29.68-3.24 1.33-2.79 4.28-4.6 7.51-4.6 4.55 0 8.25 3.51 8.25 7.83 0 1.62-1.38 2.94-3.08 2.94s-3.08-1.32-3.08-2.94c0-1.07-.93-1.94-2.08-1.94s-2.08.87-2.08 1.94c0 1.71.66 3.31 1.87 4.51.95.94 1.86 1.46 3.27 1.85.27.07.42.35.35.61-.05.23-.26.38-.47.38z" />
         </svg>
       );
 
@@ -525,6 +539,202 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="M12 3a5 5 0 0 0-5 5v1H6c-1.1 0-2 .9-2 2v9c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-9c0-1.1-.9-2-2-2h-1V8a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v1H9V8a3 3 0 0 1 3-3zm0 8a2 2 0 0 1 1 3.73V18h-2v-1.27A2 2 0 0 1 12 13z" />
+        </svg>
+      );
+
+    case "info":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" />
+        </svg>
+      );
+
+    case "warning":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 2 1 21h22L12 2zm0 4 6.5 13h-13L12 6zm-1 4v4h2v-4h-2zm0 6v2h2v-2h-2z" />
+        </svg>
+      );
+
+    case "add":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5z" />
+        </svg>
+      );
+
+    case "more_vert":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" />
+        </svg>
+      );
+
+    case "download":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 16l-5-5 1.41-1.41L11 12.17V4h2v8.17l2.59-2.58L17 11l-5 5zM5 18h14v2H5v-2z" />
+        </svg>
+      );
+
+    case "delete":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5z" />
+        </svg>
+      );
+
+    case "content_copy":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z" />
+        </svg>
+      );
+
+    case "send":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      );
+
+    case "expand_more":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z" />
+        </svg>
+      );
+
+    case "expand_less":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 10.83 16.59 15.41 18 14l-6-6-6 6 1.41 1.41L12 10.83z" />
+        </svg>
+      );
+
+    case "chat_bubble":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 14H5.17L4 17.17V4h16v12z" />
+        </svg>
+      );
+
+    case "person":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+        </svg>
+      );
+
+    case "description":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 12h8v2H8v-2zm0 4h8v2H8v-2z" />
+        </svg>
+      );
+
+    case "checklist":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M22 7h-9v2h9V7zm0 8h-9v2h9v-2zM5.54 11 2 7.46l1.41-1.41 2.12 2.12 4.24-4.24 1.42 1.41L5.54 11zm0 8L2 15.46l1.41-1.41 2.12 2.12 4.24-4.24 1.42 1.41L5.54 19z" />
         </svg>
       );
 

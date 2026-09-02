@@ -7,7 +7,19 @@ import {
 
 describe("external boundary schemas", () => {
   it("rejects oversized journal messages", () => {
-    expect(createMessageSchema.safeParse({ content: "x".repeat(8_001) }).success).toBe(false);
+    expect(
+      createMessageSchema.safeParse({
+        requestId: "00000000-0000-4000-8000-000000000001",
+        content: "x".repeat(8_001),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a valid idempotency id for every message", () => {
+    expect(createMessageSchema.safeParse({ content: "hello" }).success).toBe(false);
+    expect(createMessageSchema.safeParse({ requestId: "reused", content: "hello" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects client-controlled fields", () => {

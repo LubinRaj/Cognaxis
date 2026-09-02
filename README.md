@@ -20,7 +20,7 @@ Implemented locally:
 - deny-by-default Firestore client rules;
 - synthetic cross-user and negative security tests.
 
-Still requires external configuration before live use:
+Production deployment also requires the external configuration described below:
 
 - attach Firebase to the ideathon Google Cloud project;
 - enable Google Sign-In and register authorized domains;
@@ -74,6 +74,204 @@ The browser and API run together at `http://localhost:3000`; in development, Exp
 as middleware so the frontend and `/api` remain on the same local origin.
 
 Without Firebase configuration, Cognaxis intentionally displays a configuration-required screen instead of a fake authenticated demo.
+
+## Cloud Run deployment
+
+These instructions deploy the reviewed checkout as one public Cloud Run service: Express serves the
+compiled React application and the authenticated `/api/v1` routes. Run them from the repository root
+using the Google Cloud CLI and Docker. Replace only the values marked with angle brackets.
+
+### 1. Select the project and deployment values
+
+```bash
+export PROJECT_ID="ideathon-journal"
+export REGION="asia-south1"
+export SERVICE="cognaxis"
+export RUNTIME_SA_NAME="cognaxis-runtime"
+export RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+export SECRET_NAME="cognaxis-gemini-api-key"
+export REPOSITORY="cognaxis"
+export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/cognaxis:$(git rev-parse --short HEAD)"
+
+gcloud auth login
+gcloud config set project "$PROJECT_ID"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+```
+
+Export the public Firebase web-app identifiers from Firebase Console **Project settings > Your
+apps > Web app > SDK setup and configuration**:
+
+```bash
+export VITE_FIREBASE_API_KEY="<firebase-web-api-key>"
+export VITE_FIREBASE_AUTH_DOMAIN="<project>.firebaseapp.com"
+export VITE_FIREBASE_PROJECT_ID="$PROJECT_ID"
+export VITE_FIREBASE_APP_ID="<firebase-web-app-id>"
+```
+
+Firebase web configuration is visible in every browser bundle by design; it identifies the Firebase
+app but does not authorize database access. Restrict that key to the required Firebase APIs, never
+allow the Generative Language API on it, keep `firestore.rules` deny-by-default, and use a separate
+server-only Gemini key.
+
+### 2. Enable services and prepare the runtime identity
+
+Enable the APIs and create the Artifact Registry repository and dedicated service account once. If a
+resource already exists, verify it instead of recreating it.
+
+```bash
+gcloud services enable \
+  artifactregistry.googleapis.com \
+  firestore.googleapis.com \
+  run.googleapis.com \
+  secretmanager.googleapis.com
+
+gcloud artifacts repositories create "$REPOSITORY" \
+  --repository-format=docker \
+  --location="$REGION" \
+  --description="Cognaxis release images"
+
+gcloud iam service-accounts create "$RUNTIME_SA_NAME" \
+  --display-name="Cognaxis Runtime"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/datastore.user"
+
+gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Do not grant this runtime identity Owner or Editor and do not download a service-account key. Cloud
+Run supplies Application Default Credentials to the selected identity.
+
+Create the Gemini secret only if it does not exist, then add the key without placing it in a command,
+file, screenshot, or shell history. Paste the value when prompted and finish input with `Ctrl-D`:
+
+```bash
+gcloud secrets create "$SECRET_NAME" --replication-policy=automatic
+gcloud secrets versions add "$SECRET_NAME" --data-file=-
+```
+
+Select the newest enabled numeric version without reading its value:
+
+```bash
+export SECRET_VERSION="$(gcloud secrets versions list "$SECRET_NAME" \
+  --filter='state=ENABLED' \
+  --sort-by='~createTime' \
+  --limit=1 \
+  --format='value(name)')"
+test -n "$SECRET_VERSION"
+```
+
+Create Firestore in Native mode in `asia-south1` if it has not already been created. Then deploy the
+versioned deny-by-default client rules:
+
+```bash
+firebase login
+firebase deploy --only firestore:rules --project "$PROJECT_ID"
+```
+
+### 3. Build and push the reviewed image
+
+Run the repository verification suite before producing the image:
+
+```bash
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run security:check
+```
+
+Build the browser with the public Firebase configuration and push the resulting image. Never pass the
+Gemini key or a service-account credential as a Docker build argument.
+
+```bash
+gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+
+docker build --platform linux/amd64 \
+  --build-arg "VITE_FIREBASE_API_KEY=${VITE_FIREBASE_API_KEY}" \
+  --build-arg "VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}" \
+  --build-arg "VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID}" \
+  --build-arg "VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}" \
+  --tag "$IMAGE" \
+  .
+
+docker push "$IMAGE"
+```
+
+### 4. Deploy with the mandatory challenge label
+
+The first deployment uses a temporary denied origin only to obtain the generated Cloud Run URL. The
+second command immediately replaces it with the exact production origin. The required ideathon label
+must remain on every deployment:
+
+```bash
+gcloud run deploy "$SERVICE" \
+  --image="$IMAGE" \
+  --region="$REGION" \
+  --service-account="$RUNTIME_SA" \
+  --allow-unauthenticated \
+  --ingress=all \
+  --port=8080 \
+  --cpu=1 \
+  --memory=512Mi \
+  --concurrency=20 \
+  --timeout=60s \
+  --min-instances=0 \
+  --max-instances=3 \
+  --set-env-vars="APP_ORIGIN=https://pending.invalid,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GEMINI_MODEL=gemini-3.7-flash,GEMINI_API_KEY_SECRET=projects/${PROJECT_NUMBER}/secrets/${SECRET_NAME}/versions/${SECRET_VERSION}" \
+  --labels="dev-tutorial=cloud-run-ai-challenge"
+
+export SERVICE_URL="$(gcloud run services describe "$SERVICE" \
+  --region="$REGION" \
+  --format='value(status.url)')"
+
+gcloud run services update "$SERVICE" \
+  --region="$REGION" \
+  --update-env-vars="APP_ORIGIN=${SERVICE_URL}" \
+  --update-labels="dev-tutorial=cloud-run-ai-challenge"
+```
+
+`GEMINI_API_KEY_SECRET` deliberately references a pinned numeric secret version. Never set
+`GEMINI_API_KEY_LOCAL` or `GOOGLE_APPLICATION_CREDENTIALS` on Cloud Run.
+
+### 5. Complete Firebase production configuration
+
+In Firebase Authentication:
+
+1. Add the hostname from `$SERVICE_URL` (without `https://`) to **Settings > Authorized domains**.
+2. Confirm Google and Email/Password providers are enabled.
+3. Keep the approved password policy at 8-128 characters and email-enumeration protection enabled.
+4. If Firebase permits custom email action URLs, set the handler to
+   `${SERVICE_URL}/auth/action`; otherwise retain Firebase's hosted handler and document that limitation.
+
+Restrict the Firebase browser key to the required Firebase APIs and approved web origins. App Check is
+a recommended post-MVP hardening layer; it does not replace Firebase Authentication, backend token
+verification, authorization, or Firestore rules.
+
+### 6. Verify the release
+
+```bash
+curl --fail --silent --show-error "${SERVICE_URL}/api/health"
+
+gcloud run services describe "$SERVICE" \
+  --region="$REGION" \
+  --format='yaml(metadata.labels,spec.template.spec.serviceAccountName,status.url)'
+```
+
+The health endpoint must return `{"status":"ok"}`. The service description must show:
+
+- `dev-tutorial: cloud-run-ai-challenge` under `metadata.labels`;
+- `cognaxis-runtime@ideathon-journal.iam.gserviceaccount.com` as the runtime identity;
+- the submitted public Cloud Run URL.
+
+Finally, use synthetic accounts to test Google sign-in, email verification, password reset, one real
+Gemini conversation, Firestore persistence, session deletion, and User A/User B isolation. Confirm
+private API calls without a valid Firebase token return `401`, inspect Cloud Run logs for redaction,
+and verify the browser bundle contains no Gemini key, service-account credential, or private content.
 
 ## Verification
 

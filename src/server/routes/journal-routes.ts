@@ -86,10 +86,11 @@ export function createJournalRouter(
     "/sessions/:sessionId/messages",
     validateBody(createMessageSchema),
     route(async (request, response) => {
-      const { content } = createMessageSchema.parse(request.body);
+      const { content, requestId } = createMessageSchema.parse(request.body);
       const exchange = await service.addMessage(
         request.principal.uid,
         sessionId(request),
+        requestId,
         content,
       );
       response.status(201).json(exchange);

@@ -45,3 +45,4 @@ playwright-report/
 .tmp/
 tmp/
 *.log
+docs/*.md

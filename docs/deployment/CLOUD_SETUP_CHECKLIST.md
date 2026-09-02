@@ -30,17 +30,43 @@ enumeration-resistant copy is defence in depth rather than a substitute for them
   `auth/user-not-found` and `auth/wrong-password` separately; the Cognaxis error adapter still shows
   one identical message, but request behaviour may differ.
 - Password policy is in **Require** mode.
-- Recommended MVP policy: minimum 12 characters, maximum 128 characters. Avoid additional
-  composition rules unless the project owner approves them. The sign-up screen renders whatever
-  policy the project returns from `validatePassword()`, so no code change is needed to adjust it.
+- Approved MVP policy: minimum 8 characters, maximum 128 characters. Avoid additional composition
+  rules unless the project owner approves them. The sign-up screen and the branded password-reset
+  screen both render whatever policy the project returns from `validatePassword()`, so changing the
+  range in the console needs no code change and no redeploy.
 - The verification email template uses the Cognaxis name and a real support address.
 - The password-reset email template uses the Cognaxis name and a real support address.
 - The public-facing project name is `Cognaxis`.
-- Action links return only to an authorized Cognaxis domain. The application deliberately supplies
-  no continuation URL, so Firebase's own hosted action page handles both flows; confirm no open
-  redirect or unapproved continuation URL has been configured in the console.
+- Action links return only to an authorized Cognaxis domain. The application supplies no
+  continuation URL of its own; confirm no open redirect or unapproved continuation URL has been
+  configured in the console.
 - Record the daily quota for verification and reset emails, and add monitoring for a spike, which is
   the signal for the email-flooding threat (T30).
+
+### 2.2 Branded email-action handler
+
+Cognaxis ships a branded handler at `/auth/action`. Until the Firebase email templates are pointed
+at it, Firebase keeps using its own hosted page and the branded screen is simply unused. Nothing
+breaks either way, and the release must not be described as having a custom handler until step 4
+below has actually been performed.
+
+Perform in this order, each with project-owner approval:
+
+1. Deploy the application so `/auth/action` is reachable on the production origin.
+2. Add that exact origin to Firebase Authorized domains if it is not already listed.
+3. Open a reset and a verification link manually against the deployed route and confirm each state
+   renders and completes.
+4. In Firebase Authentication, set the email templates' action URL to
+   `https://<production-origin>/auth/action`.
+5. Send a fresh verification email and a fresh reset email and complete both through the branded
+   page.
+6. Confirm an expired or already-used link shows the safe invalid state and leaks no code.
+
+`ActionCodeSettings.url` is not the action-handler URL: it only supplies the post-action continue
+destination. The template configuration in step 4 is what decides which page receives the code.
+
+If the console reports that template customisation is unavailable for this project, stop, keep
+Firebase's default handler, and record the restriction. Do not work around it.
 
 ## 3. Gemini secret
 

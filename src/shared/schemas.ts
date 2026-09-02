@@ -14,6 +14,7 @@ export const createSessionSchema = z
 
 export const createMessageSchema = z
   .object({
+    requestId: z.uuid(),
     content: z.string().trim().min(1).max(8_000),
   })
   .strict();
@@ -64,6 +65,12 @@ export type PersonalMemory = SummaryOutput & {
 
 export type SessionDetail = JournalSession & {
   messages: JournalMessage[];
+  /**
+   * The reflection summary owned by the same user as the session. It travels with session detail
+   * so the interface can restore it after navigation or reload without a second endpoint and
+   * without any additional authorization surface.
+   */
+  summary: PersonalMemory | null;
 };
 
 export type ApiErrorBody = {

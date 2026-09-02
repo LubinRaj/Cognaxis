@@ -5,8 +5,9 @@ import type {
   PersonalMemory,
 } from "../../shared/schemas.js";
 import type {
-  AppendMessageInput,
   JournalRepository,
+  PersistedMessageExchange,
+  SaveMessageExchangeInput,
   SaveSummaryInput,
 } from "./journal-repository.js";
 
@@ -14,6 +15,7 @@ type UserStore = {
   sessions: Map<string, JournalSession>;
   messages: Map<string, JournalMessage[]>;
   memories: Map<string, PersonalMemory>;
+  exchanges: Map<string, PersistedMessageExchange>;
 };
 
 export class InMemoryJournalRepository implements JournalRepository {
@@ -26,6 +28,7 @@ export class InMemoryJournalRepository implements JournalRepository {
       sessions: new Map(),
       messages: new Map(),
       memories: new Map(),
+      exchanges: new Map(),
     };
     this.users.set(uid, created);
     return created;
@@ -69,23 +72,55 @@ export class InMemoryJournalRepository implements JournalRepository {
       .map((message) => structuredClone(message));
   }
 
-  async appendMessage(
+  async getMessageExchange(
     uid: string,
     sessionId: string,
-    input: AppendMessageInput,
-  ): Promise<JournalMessage> {
+    requestId: string,
+  ): Promise<PersistedMessageExchange | null> {
+    const exchange = this.user(uid).exchanges.get(`${sessionId}:${requestId}`);
+    return exchange ? structuredClone(exchange) : null;
+  }
+
+  async saveMessageExchange(
+    uid: string,
+    sessionId: string,
+    input: SaveMessageExchangeInput,
+  ): Promise<PersistedMessageExchange> {
     const store = this.user(uid);
+    const exchangeKey = `${sessionId}:${input.requestId}`;
+    const existing = store.exchanges.get(exchangeKey);
+    if (existing) return structuredClone(existing);
+
     const session = store.sessions.get(sessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
-    const message: JournalMessage = {
+    if (session.messageCount + 2 > input.maxMessageCount) {
+      throw new Error("SESSION_LIMIT_REACHED");
+    }
+
+    const createdAt = new Date().toISOString();
+    const userMessage: JournalMessage = {
       id: randomUUID(),
-      ...input,
-      createdAt: new Date().toISOString(),
+      role: "user",
+      content: input.userContent,
+      createdAt,
     };
-    store.messages.get(sessionId)?.push(message);
-    session.messageCount += 1;
-    session.updatedAt = message.createdAt;
-    return structuredClone(message);
+    const assistantMessage: JournalMessage = {
+      id: randomUUID(),
+      role: "model",
+      content: input.assistantContent,
+      createdAt,
+    };
+    store.messages.get(sessionId)?.push(userMessage, assistantMessage);
+    session.messageCount += 2;
+    session.updatedAt = createdAt;
+
+    const exchange: PersistedMessageExchange = {
+      userMessage,
+      assistantMessage,
+      messageCount: session.messageCount,
+    };
+    store.exchanges.set(exchangeKey, exchange);
+    return structuredClone(exchange);
   }
 
   async saveSummary(uid: string, input: SaveSummaryInput): Promise<PersonalMemory> {
@@ -120,6 +155,9 @@ export class InMemoryJournalRepository implements JournalRepository {
     const existed = store.sessions.delete(sessionId);
     store.messages.delete(sessionId);
     store.memories.delete(sessionId);
+    for (const key of store.exchanges.keys()) {
+      if (key.startsWith(`${sessionId}:`)) store.exchanges.delete(key);
+    }
     return existed;
   }
 }

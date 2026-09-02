@@ -11,9 +11,17 @@ export type SaveSummaryInput = SummaryOutput & {
   sourceMessageCount: number;
 };
 
-export type AppendMessageInput = {
-  role: JournalMessage["role"];
-  content: string;
+export type SaveMessageExchangeInput = {
+  requestId: string;
+  userContent: string;
+  assistantContent: string;
+  maxMessageCount: number;
+};
+
+export type PersistedMessageExchange = {
+  userMessage: JournalMessage;
+  assistantMessage: JournalMessage;
+  messageCount: number;
 };
 
 export interface JournalRepository {
@@ -21,11 +29,16 @@ export interface JournalRepository {
   listSessions(uid: string, limit: number): Promise<JournalSession[]>;
   getSession(uid: string, sessionId: string): Promise<JournalSession | null>;
   listMessages(uid: string, sessionId: string, limit: number): Promise<JournalMessage[]>;
-  appendMessage(
+  getMessageExchange(
     uid: string,
     sessionId: string,
-    message: AppendMessageInput,
-  ): Promise<JournalMessage>;
+    requestId: string,
+  ): Promise<PersistedMessageExchange | null>;
+  saveMessageExchange(
+    uid: string,
+    sessionId: string,
+    input: SaveMessageExchangeInput,
+  ): Promise<PersistedMessageExchange>;
   saveSummary(uid: string, input: SaveSummaryInput): Promise<PersonalMemory>;
   getSummary(uid: string, sessionId: string): Promise<PersonalMemory | null>;
   deleteSession(uid: string, sessionId: string): Promise<boolean>;

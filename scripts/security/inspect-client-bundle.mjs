@@ -74,25 +74,21 @@ if (assets.some((name) => name.endsWith(".map"))) {
 // FirebaseUI declares its palette inside `@layer theme` and switches to dark with
 // prefers-color-scheme. Cognaxis must override those variables from an unlayered rule so the
 // application palette stays authoritative and FirebaseUI follows the in-app theme control.
-const authStylesheets = assets.filter(
-  (name) => name.startsWith("AuthSurface-") && name.endsWith(".css"),
-);
+const PALETTE_MARKER = "--fui-primary:var(--sys-primary)";
+const stylesheets = assets.filter((name) => name.endsWith(".css"));
+const themeStylesheets = stylesheets.filter((name) => read(name).includes(PALETTE_MARKER));
 
-if (authStylesheets.length === 0) {
-  failures.push("The authentication stylesheet was not emitted with its lazy chunk.");
+if (themeStylesheets.length === 0) {
+  failures.push(
+    "No stylesheet maps FirebaseUI colours to Cognaxis tokens, so FirebaseUI would keep its own " +
+      "palette and follow the operating system theme.",
+  );
 }
 
-for (const name of authStylesheets) {
+for (const name of themeStylesheets) {
   const content = read(name);
-  const marker = "--fui-primary:var(--sys-primary)";
-  const position = content.indexOf(marker);
 
-  if (position === -1) {
-    failures.push(`Stylesheet ${name} does not map FirebaseUI colours to Cognaxis tokens.`);
-    continue;
-  }
-
-  if (isInsideCascadeLayer(content, position)) {
+  if (isInsideCascadeLayer(content, content.indexOf(PALETTE_MARKER))) {
     failures.push(
       `Stylesheet ${name} declares the Cognaxis FirebaseUI palette inside a cascade layer, ` +
         "so the FirebaseUI theme layer can override it.",
@@ -101,6 +97,11 @@ for (const name of authStylesheets) {
 
   if (!content.includes(".cx-auth-card")) {
     failures.push(`Stylesheet ${name} is missing the scoped Cognaxis authentication card styles.`);
+  }
+
+  // The mapping must stay out of the entry stylesheet so it loads with the lazy surfaces only.
+  if (name.startsWith("index-")) {
+    failures.push(`The entry stylesheet ${name} contains lazily loaded FirebaseUI theming.`);
   }
 }
 

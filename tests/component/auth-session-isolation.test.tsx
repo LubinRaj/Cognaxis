@@ -113,7 +113,9 @@ describe("session isolation and recovery", () => {
     await signalUser(accountFor("user_alpha"));
     await waitFor(() => expect(screen.getAllByText(ALPHA_TITLE).length).toBeGreaterThan(0));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    // Sign out lives inside the account menu in the history pane footer.
+    await user.click(screen.getAllByRole("button", { name: /alpha@example\.test/i })[0]);
+    await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
     await waitFor(() => expect(firebaseAuthMocks.signOut).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryAllByText(ALPHA_TITLE)).toHaveLength(0));

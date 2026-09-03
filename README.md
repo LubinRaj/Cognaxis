@@ -106,6 +106,10 @@ There is no CI/CD pipeline: automated tests are development-only tooling run loc
 useful, and the production smoke suite drives the published Cloud Run URL from a local
 Playwright runner on demand.
 
+Google AI Studio builds and deploys only — it runs `npm install`, `npm run build`, and
+`npm start`, and never runs the test suites. The tests are not part of the build or deploy path
+and are not required to publish.
+
 ### Production configuration
 
 Google AI Studio must retain the public Firebase web configuration used by the preview and build:

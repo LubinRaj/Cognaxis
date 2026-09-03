@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file=.env.local src/server/index.ts",
-    "build": "npm run typecheck && NODE_ENV=production vite build && tsc -p tsconfig.server.json",
+    "build": "npm run typecheck:app && NODE_ENV=production vite build && tsc -p tsconfig.server.json",
     "start": "node dist-server/server/index.js",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.test.client.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
+    "typecheck:app": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "npm run typecheck:app && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.test.client.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

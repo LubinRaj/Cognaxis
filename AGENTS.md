@@ -34,6 +34,24 @@ When documents conflict, prefer the stricter security invariant and flag the con
 - A source deletion must remove or invalidate every derived summary, embedding, and retrieval artifact.
 - High-impact or external actions require explicit user confirmation and independent server-side authorization.
 
+## Deployment environment (Google AI Studio)
+
+When operating inside Google AI Studio, the role is limited to: build the app, run the Preview,
+diagnose and fix build or runtime issues, and publish to Cloud Run. **Do not run the test suites
+in AI Studio.** `npm test`, `npm run test:e2e`, `npm run test:emulator`, `npm run test:visual`,
+and `npm run test:prod-smoke` are developer tooling that runs only on the maintainer's local
+machine; they are never required to build, preview, or deploy, and their result must never block
+a publish.
+
+- The only commands the deployment path needs are `npm install`/`npm ci`, `npm run build`, and
+  `npm start`. The build produces `dist/client` (the SPA) and `dist-server` (the API); `start`
+  serves both. A missing `dist/client` means the build step did not run — build, do not test.
+- Do not set `NODE_ENV` by hand anywhere. The container sets it to `production`, which is
+  correct; the test tooling forces its own mode internally, so no environment needs configuring
+  for tests to behave.
+- The full test tooling still lives in the repository and is exercised locally before each push.
+  Treat it as reference, not as a step to perform here.
+
 ## Change workflow
 
 Before implementing a feature that touches authentication, authorization, data storage, retrieval, Gemini, uploads, voice, external integrations, or deployment:

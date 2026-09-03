@@ -1,6 +1,13 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
+// Force test mode regardless of the ambient NODE_ENV, so every way of running Vitest is
+// protected — `npm test`, `npx vitest run <file>`, and IDE test runners alike, not just the
+// npm script. If NODE_ENV=production were inherited, React 19 would load its production build,
+// which omits `React.act`, and every Testing Library component test would fail. This affects
+// only this Vitest process and never the application build or start commands.
+process.env.NODE_ENV = "test";
+
 export default defineConfig({
   test: {
     coverage: {

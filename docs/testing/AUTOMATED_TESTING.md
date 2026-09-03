@@ -79,12 +79,12 @@ requires explicit environment values:
 PROD_SMOKE_BASE_URL   the deployed Cloud Run URL
 PROD_SMOKE_EMAIL      a dedicated synthetic email/password account created only for testing
 PROD_SMOKE_PASSWORD   its password (from protected secrets, never committed)
-PROD_SMOKE_LIVE_AI=1  optionally send one harmless synthetic Gemini message
 ```
 
 It loads public pages, signs in with the dedicated account only, creates at most one reflection
-prefixed with a unique run id, deletes it through the visible flow, and verifies the ordinary
-account cannot open the admin area. If cleanup fails it prints the run id and fails the test.
+with a unique run id, sends exactly one harmless synthetic message through the real Gemini
+pipeline, deletes the reflection through the visible flow, and verifies the ordinary account
+cannot open the admin area. If cleanup fails it prints the run id and fails the test.
 Never point it at a real person's account. Real Google OAuth, verification-mail delivery, and
 invitation-mail delivery remain manual checks.
 

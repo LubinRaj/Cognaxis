@@ -88,7 +88,7 @@ Firebase's default handler, and record the restriction. Do not work around it.
 
 - Build from the reviewed commit using the included `Dockerfile`.
 - Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, and the pinned `GEMINI_API_KEY_SECRET` resource name.
-- Never set `GEMINI_API_KEY_LOCAL` in production.
+- Never set a plain `GEMINI_API_KEY` in production; only the Secret Manager reference is accepted.
 - Bind the dedicated runtime service account.
 - Set conservative request concurrency, timeout, maximum instances, and minimum instances for the demo budget.
 - Restrict unauthenticated access to the public HTTPS service only; all protected application routes still require Firebase tokens.

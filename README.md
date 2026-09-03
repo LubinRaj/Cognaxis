@@ -116,9 +116,6 @@ Google AI Studio must retain the public Firebase web configuration used by the p
 - `VITE_FIREBASE_APP_ID`
 - optional `VITE_GOOGLE_MAPS_API_KEY`
 
-The complete production checklist — which value is set in AI Studio versus on the Cloud Run
-service — is kept in [`.env.production.example`](.env.production.example).
-
 These browser values are identifiers, not authorization secrets. Restrict the Firebase key to the
 required Firebase APIs and restrict the Maps key to the Maps JavaScript API and approved website
 origins. Never provide the Gemini key, a service-account key, or an Admin SDK credential to the

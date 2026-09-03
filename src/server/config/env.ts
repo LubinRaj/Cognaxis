@@ -19,7 +19,7 @@ const environmentSchema = z
       .string()
       .regex(/^projects\/[^/]+\/secrets\/[^/]+\/versions\/[0-9]+$/)
       .optional(),
-    GEMINI_API_KEY_LOCAL: z.string().min(1).optional(),
+    GEMINI_API_KEY: z.string().min(1).optional(),
     FIREBASE_AUTH_DOMAIN: z
       .string()
       .regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/i)
@@ -56,11 +56,11 @@ const environmentSchema = z
       });
     }
 
-    if (value.GEMINI_API_KEY_LOCAL) {
+    if (value.GEMINI_API_KEY) {
       context.addIssue({
         code: "custom",
-        path: ["GEMINI_API_KEY_LOCAL"],
-        message: "Local Gemini credentials are forbidden in production",
+        path: ["GEMINI_API_KEY"],
+        message: "Plain Gemini credentials are forbidden in production; use Secret Manager",
       });
     }
   });

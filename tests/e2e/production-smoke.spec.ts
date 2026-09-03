@@ -4,7 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 //   PROD_SMOKE_BASE_URL   the deployed Cloud Run URL (required)
 //   PROD_SMOKE_EMAIL      a dedicated synthetic email/password test account (optional; the
 //   PROD_SMOKE_PASSWORD   authenticated journey is skipped without it)
-//   PROD_SMOKE_LIVE_AI=1  additionally send one harmless synthetic Gemini message (optional)
+// The authenticated journey sends exactly one harmless synthetic message through the real
+// Gemini pipeline and deletes the reflection afterwards.
 //
 // This suite deliberately does NOT use the hermetic local fixtures: it talks to the real
 // deployment and real Google services. It only ever touches the one session it created itself —
@@ -106,15 +107,14 @@ test.describe("production smoke", () => {
       const composer = page.getByLabel("Write your reflection");
       await expect(composer).toBeVisible();
 
-      if (process.env.PROD_SMOKE_LIVE_AI === "1") {
-        await composer.fill(`${runId}: a harmless synthetic smoke-test message.`);
-        await page.getByRole("button", { name: "Send message" }).click();
-        await expect(page.getByRole("article", { name: "Message from Cognaxis" })).toBeVisible({
-          timeout: 30_000,
-        });
-        await page.reload();
-        await expect(page.getByText(runId)).toBeVisible();
-      }
+      // One real Gemini exchange, then persistence across a reload.
+      await composer.fill(`${runId}: a harmless synthetic smoke-test message.`);
+      await page.getByRole("button", { name: "Send message" }).click();
+      await expect(page.getByRole("article", { name: "Message from Cognaxis" })).toBeVisible({
+        timeout: 30_000,
+      });
+      await page.reload();
+      await expect(page.getByText(runId)).toBeVisible();
 
       // Delete through the visible confirmation flow and prove the session is really gone.
       await deleteOpenSessionThroughUi(page);

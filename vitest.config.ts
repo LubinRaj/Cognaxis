@@ -22,6 +22,12 @@ export default defineConfig({
           environment: "jsdom",
           include: ["tests/component/**/*.test.tsx"],
           setupFiles: ["tests/setup/component-setup.ts"],
+          // Component tests must not inherit the developer's .env.local: browser configuration
+          // is pinned here so results are identical on every machine.
+          env: {
+            VITE_GOOGLE_MAPS_API_KEY: "",
+            VITE_E2E_FAKE_MAPS: "",
+          },
           server: {
             deps: {
               // FirebaseUI must be processed rather than externalised so its internal

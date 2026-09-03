@@ -42,7 +42,7 @@ for (const name of entryScripts) {
 // No server-side credential, model key, or privileged configuration may reach the browser.
 const forbiddenInAnyAsset = [
   "GEMINI_API_KEY",
-  "GEMINI_API_KEY_LOCAL",
+  "GEMINI_API_KEY",
   "GOOGLE_APPLICATION_CREDENTIALS",
   "service_account",
   "-----BEGIN",

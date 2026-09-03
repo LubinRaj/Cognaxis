@@ -25,8 +25,8 @@ export class GoogleSecretProvider implements SecretProvider {
       return key;
     }
 
-    if (this.config.NODE_ENV !== "production" && this.config.GEMINI_API_KEY_LOCAL) {
-      this.cachedKey = this.config.GEMINI_API_KEY_LOCAL;
+    if (this.config.NODE_ENV !== "production" && this.config.GEMINI_API_KEY) {
+      this.cachedKey = this.config.GEMINI_API_KEY;
       return this.cachedKey;
     }
 

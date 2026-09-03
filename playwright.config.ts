@@ -22,6 +22,10 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL: productionSmoke ? process.env.PROD_SMOKE_BASE_URL : E2E_BASE_URL,
+    // Server-side date windows use the saved preference timezone (UTC by default); the test
+    // browser is pinned to the same zone so date-boundary behavior does not depend on the wall
+    // clock of the machine running the suite. Individual tests still override this.
+    timezoneId: "UTC",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",

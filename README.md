@@ -128,7 +128,8 @@ After the first AI Studio publication, open its Cloud Run service through **Adva
 2. set `APP_ORIGIN` to the exact published HTTPS origin;
 3. set `GOOGLE_CLOUD_PROJECT=ideathon-journal`;
 4. set `GEMINI_MODEL=gemini-3.7-flash`;
-5. set `GEMINI_API_KEY_SECRET` to a pinned numeric Secret Manager version;
+5. add `GEMINI_API_KEY` as a Secret Manager reference exposed as an environment variable
+   (pinned numeric version — never paste the raw key);
 6. set `FIREBASE_AUTH_DOMAIN` to the exact Firebase authentication domain;
 7. decide the `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`, and
    `FEATURE_ADMIN` launch flags;

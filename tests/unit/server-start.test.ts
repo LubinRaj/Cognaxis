@@ -15,28 +15,31 @@ describe("server startup", () => {
     expect(() => loadConfig({ NODE_ENV: "test", PORT: "70000" })).toThrow();
   });
 
-  it("accepts the AI Studio GEMINI_API_KEY name outside production only", () => {
-    // AI Studio Preview injects the key under this standard name; production must still refuse
-    // every plain credential and use Secret Manager exclusively.
+  it("reads GEMINI_API_KEY everywhere and requires it in production", () => {
+    // One name for every environment: AI Studio injects it in Preview, and Cloud Run delivers
+    // it as a Secret Manager reference exposed as an environment variable.
     expect(
       loadConfig({ NODE_ENV: "development", GEMINI_API_KEY: "synthetic-preview-key" })
         .GEMINI_API_KEY,
     ).toBe("synthetic-preview-key");
+    expect(loadConfig({ NODE_ENV: "development" }).GEMINI_API_KEY).toBeUndefined();
 
     const production = {
       NODE_ENV: "production",
       APP_ORIGIN: "https://cognaxis.test",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
-      GEMINI_API_KEY_SECRET: "projects/synthetic-project/secrets/gemini/versions/1",
     } as const;
-    expect(() => loadConfig({ ...production, GEMINI_API_KEY: "leaked" })).toThrow();
+    expect(() => loadConfig(production)).toThrow();
+    expect(
+      loadConfig({ ...production, GEMINI_API_KEY: "synthetic-production-key" }).GEMINI_API_KEY,
+    ).toBe("synthetic-production-key");
   });
 
   it("requires an exact application origin in production", () => {
     const production = {
       NODE_ENV: "production",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
-      GEMINI_API_KEY_SECRET: "projects/synthetic-project/secrets/gemini/versions/1",
+      GEMINI_API_KEY: "synthetic-production-key",
     } as const;
 
     expect(() => loadConfig(production)).toThrow();

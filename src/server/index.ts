@@ -22,13 +22,13 @@ import { InsightInvalidationService, InsightService } from "./services/insight-s
 import { JournalService } from "./services/journal-service.js";
 import { PlatformUserService } from "./services/platform-user-service.js";
 import { SignalService } from "./services/signal-service.js";
-import { GoogleSecretProvider } from "./services/secret-provider.js";
+import { EnvSecretProvider } from "./services/secret-provider.js";
 import { startServer } from "./start.js";
 
 const config = loadConfig();
 const verifier = new FirebaseTokenVerifier(config);
 const repository = new FirestoreJournalRepository();
-const secrets = new GoogleSecretProvider(config);
+const secrets = new EnvSecretProvider(config);
 const model = new GeminiConversationModel(config, secrets);
 const signalRepository = new FirestoreSignalRepository();
 const preferencesRepository = new FirestorePreferencesRepository();

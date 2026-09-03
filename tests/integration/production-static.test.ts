@@ -16,7 +16,7 @@ async function createProductionApp() {
     environment: {
       NODE_ENV: "production",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
-      GEMINI_API_KEY_SECRET: "projects/synthetic-project/secrets/gemini/versions/1",
+      GEMINI_API_KEY: "synthetic-production-key",
     },
   });
 }

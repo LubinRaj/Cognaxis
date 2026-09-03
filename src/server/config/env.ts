@@ -15,10 +15,9 @@ const environmentSchema = z
     APP_ORIGIN: originSchema.optional(),
     GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),
     GEMINI_MODEL: z.string().min(1).default("gemini-3.7-flash"),
-    GEMINI_API_KEY_SECRET: z
-      .string()
-      .regex(/^projects\/[^/]+\/secrets\/[^/]+\/versions\/[0-9]+$/)
-      .optional(),
+    // One name everywhere: AI Studio injects it in Preview, and the Cloud Run service receives
+    // it as a Secret Manager reference exposed as an environment variable, so the raw value is
+    // never stored in configuration.
     GEMINI_API_KEY: z.string().min(1).optional(),
     FIREBASE_AUTH_DOMAIN: z
       .string()
@@ -48,19 +47,12 @@ const environmentSchema = z
       });
     }
 
-    if (!value.GEMINI_API_KEY_SECRET) {
-      context.addIssue({
-        code: "custom",
-        path: ["GEMINI_API_KEY_SECRET"],
-        message: "A pinned Secret Manager version is required in production",
-      });
-    }
-
-    if (value.GEMINI_API_KEY) {
+    if (!value.GEMINI_API_KEY) {
       context.addIssue({
         code: "custom",
         path: ["GEMINI_API_KEY"],
-        message: "Plain Gemini credentials are forbidden in production; use Secret Manager",
+        message:
+          "GEMINI_API_KEY is required in production; deliver it as a Secret Manager reference exposed as an environment variable",
       });
     }
   });

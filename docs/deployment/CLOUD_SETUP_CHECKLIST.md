@@ -73,7 +73,7 @@ Firebase's default handler, and record the restriction. Do not work around it.
 - Enable Secret Manager only when ready to configure the runtime.
 - Create a secret named for the Cognaxis Gemini credential.
 - Add the key as a secret version without displaying it in screenshots, logs, shell history, source, or chat.
-- Use a pinned numeric version in `GEMINI_API_KEY_SECRET`; do not use `latest` for the production environment.
+- Expose the secret to Cloud Run as the `GEMINI_API_KEY` environment variable (Variables & Secrets -> Reference a secret) with a pinned numeric version; do not use `latest` and never paste the raw key.
 
 ## 4. Runtime identity and IAM
 
@@ -87,7 +87,7 @@ Firebase's default handler, and record the restriction. Do not work around it.
 ## 5. Cloud Run
 
 - Build from the reviewed commit using the included `Dockerfile`.
-- Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, and the pinned `GEMINI_API_KEY_SECRET` resource name.
+- Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, and `GEMINI_API_KEY` as the pinned Secret Manager reference.
 - Never set a plain `GEMINI_API_KEY` in production; only the Secret Manager reference is accepted.
 - Bind the dedicated runtime service account.
 - Set conservative request concurrency, timeout, maximum instances, and minimum instances for the demo budget.

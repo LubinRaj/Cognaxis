@@ -60,7 +60,7 @@ const config = loadConfig({
   APP_ORIGIN: E2E_BASE_URL,
   GOOGLE_CLOUD_PROJECT: E2E_PROJECT_ID,
   GEMINI_MODEL: "e2e-deterministic-model",
-  GEMINI_API_KEY_SECRET: `projects/${E2E_PROJECT_ID}/secrets/e2e-placeholder/versions/1`,
+  GEMINI_API_KEY: "e2e-synthetic-model-key",
   FIREBASE_AUTH_DOMAIN: `${E2E_PROJECT_ID}.firebaseapp.com`,
 });
 

@@ -1,36 +1,52 @@
 # Cognaxis
 
-Cognaxis is a security-first personal intelligence journal. An authenticated user can hold a multi-turn conversation with Gemini, preserve the conversation in a private Firestore scope, and save structured summaries as personal memories.
+**A security-first personal intelligence journal and evolving organizational intelligence platform built with Gemini and Google Cloud.**
 
-The ideathon MVP deliberately keeps personal and organization authorization domains separate. Organization features remain disabled until their membership workflow is implemented and tested; an organization role never grants access to a person's private journal.
+Cognaxis combines an authenticated conversational workspace with permission-scoped memory, structured reflection summaries, personal signal tracking, periodic insights, and role-aware organization surfaces. Its core design rule is simple: authorize before retrieval, keep private and organization data in separate scopes, and never rely on the model to enforce access control.
+
+> **Project status:** active development. The application and automated test suite run locally; production use still requires the Firebase, Google Cloud, IAM, and deployment steps documented below.
+
+## What the project demonstrates
+
+- **Conversational intelligence:** multi-turn Gemini conversations with bounded context and schema-validated summaries
+- **Private memory:** server-derived Firestore paths for personal sessions, messages, summaries, signals, insights, and cascade deletion
+- **Identity and access control:** Firebase authentication, verified-email checks, server-side token verification, platform roles, and organization role enforcement
+- **Organization workflows:** organization creation, membership, single-use invitations, team administration, and audit events while personal journals remain separately authorized
+- **Platform administration:** protected user, role, status, and high-level metrics surfaces for super administrators
+- **Security by construction:** server-only model access, Secret Manager integration, Zod validation, exact-origin CORS, security headers, request limits, redacted errors, and deny-by-default Firestore client rules
+- **Verification evidence:** unit, component, integration, negative authorization, accessibility, and repository security checks
+
+## Technology
+
+`React` `TypeScript` `Vite` `Express` `Firebase Auth` `Firestore` `Gemini` `Google Cloud` `Cloud Run` `Secret Manager` `Zod` `Vitest` `Testing Library` `Tailwind CSS`
 
 ## Implementation status
 
-Implemented locally:
+Implemented in the current repository:
 
-- React + TypeScript + Vite authenticated interface;
-- Firebase Google Sign-In and SDK-managed token lifecycle;
+- React + TypeScript + Vite application with responsive, themed authentication and workspace interfaces;
+- Google and email/password authentication flows with Firebase SDK-managed token lifecycle;
 - authenticated API client using Firebase bearer tokens;
-- Express API with Firebase Admin token verification;
-- server-derived personal Firestore paths;
-- personal sessions, messages, summaries, and cascade deletion;
-- server-only Gemini calls with bounded context and structured summary validation;
+- Express API with Firebase Admin token verification and server-side authorization middleware;
+- personal conversations, summaries, reflection history, export, deletion, signals, and day/week insights;
+- organization membership and invitation workflows with role-gated administration;
+- platform administration routes and UI protected by a dedicated super-admin boundary;
+- server-only Gemini calls with bounded context and structured-output validation;
 - Secret Manager credential adapter using Application Default Credentials;
 - Zod validation, exact-origin CORS, security headers, body limits, private caching, redacted errors, and rate limits;
-- deny-by-default Firestore client rules;
-- synthetic cross-user and negative security tests.
+- deny-by-default Firestore client rules and synthetic negative security tests.
 
 Production deployment also requires the external configuration described below:
 
-- attach Firebase to the ideathon Google Cloud project;
-- enable Google Sign-In and register authorized domains;
+- attach Firebase to the target Google Cloud project;
+- enable the required sign-in providers and register authorized domains;
 - create the Firestore database in the selected region;
 - create the Gemini secret and dedicated Cloud Run runtime identity;
 - grant secret-specific and datastore-specific IAM;
 - configure Cloud Run environment values and deploy;
 - run emulator and deployed synthetic-user security tests.
 
-No real credentials belong in this repository.
+No real credentials or private user content belong in this repository.
 
 ## Architecture
 

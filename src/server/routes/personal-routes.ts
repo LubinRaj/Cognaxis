@@ -1,175 +1,231 @@
-import { Router } from "express";
-import { authenticate } from "../middleware/authenticate.js";
-import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
-import { requireActivePlatformUser } from "../middleware/require-platform-user.js";
-import { validateBody } from "../middleware/validate.js";
-import type { TokenVerifier } from "../types.js";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import type { SignalService } from "../services/signal-service.js";
-import type { InsightService } from "../services/insight-service.js";
-import { AppError } from "../errors.js";
+import { Router, type NextFunction, type Response } from "express";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
+import { addDays, localDateOf } from "../../shared/dates.js";
 import {
-  upsertSignalSchema,
+  documentIdSchema,
+  generateInsightSchema,
+  localDateSchema,
   updatePreferencesSchema,
-  type UpsertSignalInput,
-  type UpdatePreferencesInput,
+  upsertSignalSchema,
 } from "../../shared/schemas.js";
+import type { AppConfig } from "../config/env.js";
+import { AppError } from "../errors.js";
+import { requireFeature } from "../middleware/require-feature.js";
+import { validateBody } from "../middleware/validate.js";
+import type { DashboardService } from "../services/dashboard-service.js";
+import type { InsightService } from "../services/insight-service.js";
+import type { SignalService } from "../services/signal-service.js";
+import type { AuthenticatedRequest } from "../types.js";
 
-export function createPersonalRoutes(
-  verifier: TokenVerifier,
+const dashboardQuerySchema = z
+  .object({
+    rangeDays: z.coerce.number().pipe(z.union([z.literal(7), z.literal(30), z.literal(90)])),
+  })
+  .strict();
+
+const periodsQuerySchema = z
+  .object({
+    type: z.enum(["day", "week"]),
+    limit: z.coerce.number().int().min(1).max(20).default(10),
+  })
+  .strict();
+
+const mapPointsQuerySchema = z
+  .object({
+    from: localDateSchema.optional(),
+    to: localDateSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(200),
+  })
+  .strict()
+  .refine((value) => !value.from || !value.to || value.from <= value.to, {
+    message: "from must not be after to",
+  });
+
+const periodTypeSchema = z.enum(["day", "week"]);
+const periodKeyPattern = /^[A-Za-z0-9_-]{5,24}$/;
+
+function periodKey(request: AuthenticatedRequest): string {
+  const value = request.params.periodKey;
+  if (typeof value !== "string" || !periodKeyPattern.test(value)) {
+    throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
+  }
+  return value;
+}
+
+function sessionId(request: AuthenticatedRequest): string {
+  const parsed = documentIdSchema.safeParse(request.params.sessionId);
+  if (!parsed.success) {
+    throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
+  }
+  return parsed.data;
+}
+
+function route(handler: (request: AuthenticatedRequest, response: Response) => Promise<void>) {
+  return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+    void handler(request, response).catch(next);
+  };
+}
+
+// Authentication, per-user rate limiting, verified email, and active platform status are enforced
+// by the shared private pipeline in app.ts before this router runs. Every handler derives the
+// owner exclusively from the verified principal.
+export function createPersonalRouter(
+  config: AppConfig,
   signalService: SignalService,
+  dashboardService: DashboardService,
   insightService: InsightService,
 ): Router {
   const router = Router();
-  router.use(authenticate(verifier));
-  router.use(requireVerifiedEmail);
-  router.use(requireActivePlatformUser);
 
-  router.get("/me/capabilities", (_req, res, next) => {
-    try {
-      res.json({
-        platformRole: _req.platformUser?.platformRole ?? "user",
-        status: _req.platformUser?.status ?? "active",
-      });
-    } catch (error) {
-      next(error);
-    }
+  // AI generation is far more expensive than a read, so it carries its own tighter per-user limit
+  // on top of the shared private-pipeline limit.
+  const generationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1_000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (request) => request.principal.uid,
+    message: {
+      error: { code: "RATE_LIMITED", message: "Please wait before creating more insights." },
+    },
   });
 
-  router.get("/personal/preferences", async (req, res, next) => {
-    try {
-      const db = getFirestore();
-      const doc = await db
-        .collection("users")
-        .doc(req.principal.uid)
-        .collection("settings")
-        .doc("preferences")
-        .get();
-      if (!doc.exists) {
-        res.json({
-          timezone: "UTC",
-          weekStartsOn: "monday",
-          insightRangeDays: 7,
-        });
-        return;
-      }
-      res.json(doc.data());
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/personal/preferences",
+    route(async (request, response) => {
+      const preferences = await dashboardService.getPreferences(request.principal.uid);
+      response.json({ preferences });
+    }),
+  );
 
-  router.put("/personal/preferences", validateBody(updatePreferencesSchema), async (req, res, next) => {
-    try {
-      const db = getFirestore();
-      const body = req.body as UpdatePreferencesInput;
-      const ref = db
-        .collection("users")
-        .doc(req.principal.uid)
-        .collection("settings")
-        .doc("preferences");
-      await ref.set(
-        {
-          ...body,
-          updatedAt: FieldValue.serverTimestamp(),
-          schemaVersion: 1,
-        },
-        { merge: true },
+  router.put(
+    "/personal/preferences",
+    validateBody(updatePreferencesSchema),
+    route(async (request, response) => {
+      const preferences = await dashboardService.updatePreferences(
+        request.principal.uid,
+        updatePreferencesSchema.parse(request.body),
       );
-      res.json({ status: "updated", preferences: body });
-    } catch (error) {
-      next(error);
-    }
-  });
+      response.json({ preferences });
+    }),
+  );
 
-  router.get("/personal/signals", async (req, res, next) => {
-    try {
-      const limit = Math.min(Number(req.query.limit) || 30, 100);
-      const signals = await signalService.listSignals(req.principal.uid, limit);
-      res.json({ signals });
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/sessions/:sessionId/signals",
+    route(async (request, response) => {
+      const signal = await signalService.getForSession(request.principal.uid, sessionId(request));
+      response.json({ signal });
+    }),
+  );
 
-function paramId(val: unknown): string {
-  if (typeof val === "string" && val.length > 0) return val;
-  if (Array.isArray(val) && typeof val[0] === "string") return val[0];
-  throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
-}
-
-  router.get("/sessions/:sessionId/signals", async (req, res, next) => {
-    try {
-      const sessionId = paramId(req.params.sessionId);
-      const signal = await signalService.getSignal(req.principal.uid, sessionId);
-      if (!signal) {
-        res.status(404).json({ error: { code: "NOT_FOUND", message: "Signal not found" } });
-        return;
-      }
-      res.json(signal);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.put("/sessions/:sessionId/signals", validateBody(upsertSignalSchema), async (req, res, next) => {
-    try {
-      const sessionId = paramId(req.params.sessionId);
-      const signal = await signalService.upsertSignal(
-        req.principal.uid,
-        sessionId,
-        req.body as UpsertSignalInput,
+  router.put(
+    "/sessions/:sessionId/signals",
+    validateBody(upsertSignalSchema),
+    route(async (request, response) => {
+      const outcome = await signalService.upsert(
+        request.principal.uid,
+        sessionId(request),
+        upsertSignalSchema.parse(request.body),
       );
-      res.json(signal);
-    } catch (error) {
-      next(error);
-    }
-  });
+      response.json(outcome);
+    }),
+  );
 
-  router.delete("/sessions/:sessionId/signals", async (req, res, next) => {
-    try {
-      const sessionId = paramId(req.params.sessionId);
-      await signalService.deleteSignal(req.principal.uid, sessionId);
-      res.status(204).end();
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.delete(
+    "/sessions/:sessionId/signals",
+    route(async (request, response) => {
+      await signalService.remove(request.principal.uid, sessionId(request));
+      response.status(204).end();
+    }),
+  );
 
-  router.get("/personal/insights", async (req, res, next) => {
-    try {
-      const periodType = req.query.periodType === "day" ? "day" : "week";
-      const insights = await insightService.listInsights(req.principal.uid, periodType, 20);
-      res.json({ insights });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get("/personal/insights/:periodType/:periodKey", async (req, res, next) => {
-    try {
-      const periodKey = paramId(req.params.periodKey);
-      const insight = await insightService.getInsight(req.principal.uid, periodKey);
-      if (!insight) {
-        res.status(404).json({ error: { code: "NOT_FOUND", message: "Insight not found" } });
-        return;
+  router.get(
+    "/personal/map-points",
+    requireFeature(config, "FEATURE_MAPS"),
+    route(async (request, response) => {
+      const parsed = mapPointsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
       }
-      res.json(insight);
-    } catch (error) {
-      next(error);
-    }
-  });
+      // The default window ends on the user's own current day: local dates are stored in the
+      // user's saved timezone, so a UTC-derived "tomorrow" would either miss or invent a day.
+      const timezone = (await dashboardService.getPreferences(request.principal.uid)).timezone;
+      const to = parsed.data.to ?? localDateOf(new Date(), timezone);
+      const from = parsed.data.from ?? addDays(to, -89);
+      const points = await signalService.listMapPoints(
+        request.principal.uid,
+        from,
+        to,
+        parsed.data.limit,
+      );
+      response.json({ points });
+    }),
+  );
 
-  router.post("/personal/insights/:periodType/:periodKey/generate", async (req, res, next) => {
-    try {
-      const periodKey = paramId(req.params.periodKey);
-      const type = req.params.periodType === "day" ? "day" : "week";
-      const insight = await insightService.generateInsight(req.principal.uid, type, periodKey);
-      res.json(insight);
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.get(
+    "/personal/insights/dashboard",
+    requireFeature(config, "FEATURE_INSIGHTS"),
+    route(async (request, response) => {
+      const parsed = dashboardQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+      }
+      const [dashboard, recentInsights] = await Promise.all([
+        dashboardService.getDashboard(request.principal.uid, parsed.data.rangeDays),
+        insightService.recent(request.principal.uid),
+      ]);
+      response.json({ dashboard, recentInsights });
+    }),
+  );
+
+  router.get(
+    "/personal/insights/periods",
+    requireFeature(config, "FEATURE_INSIGHTS"),
+    route(async (request, response) => {
+      const parsed = periodsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+      }
+      const insights = await insightService.list(
+        request.principal.uid,
+        parsed.data.type,
+        parsed.data.limit,
+      );
+      response.json({ insights });
+    }),
+  );
+
+  router.post(
+    "/personal/insights/:periodType/:periodKey/generate",
+    requireFeature(config, "FEATURE_INSIGHTS"),
+    generationLimiter,
+    validateBody(generateInsightSchema),
+    route(async (request, response) => {
+      const parsedType = periodTypeSchema.safeParse(request.params.periodType);
+      if (!parsedType.success) {
+        throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
+      }
+      const body = generateInsightSchema.parse(request.body);
+      const result = await insightService.generate(
+        request.principal.uid,
+        parsedType.data,
+        periodKey(request),
+        body.requestId,
+        body.regenerate,
+      );
+      response.json(result);
+    }),
+  );
+
+  router.delete(
+    "/personal/insights/:periodKey",
+    requireFeature(config, "FEATURE_INSIGHTS"),
+    route(async (request, response) => {
+      await insightService.delete(request.principal.uid, periodKey(request));
+      response.status(204).end();
+    }),
+  );
 
   return router;
 }

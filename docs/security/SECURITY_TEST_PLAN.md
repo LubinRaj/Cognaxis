@@ -1,6 +1,6 @@
 # Cognaxis Security Test Plan
 
-Version: 1.1
+Version: 1.2
 Status: Suites A, A2, A3, A4, A5, B, G, H, and J implemented for the Personal Gemini Journal with
 FirebaseUI authentication. Remaining suites stay in design until their features are enabled.
 
@@ -114,6 +114,40 @@ For every personal resource type and operation, prove:
 - personal list pagination cannot include another user;
 - existence is not disclosed unnecessarily through status, timing, or error text.
 
+### B2. Signals, deterministic dashboard, and location privacy
+
+- signal scores accept only nullable integers one to five and controlled unique emotions;
+- server-controlled fields (`uid`, `createdBy`, `scopeId`, timestamps) are rejected;
+- the claimed local date must be plausible for the supplied IANA timezone;
+- an all-empty save is a deletion result, not an error;
+- deleting the reflection deletes its signal and its map eligibility;
+- dashboard metrics are deterministic, range-exact, and never fill gaps or coerce null scores;
+- no geolocation request happens before the explicit user action, and denial leaves journaling
+  fully usable;
+- "approximate" is genuinely rounded before persistence;
+- coordinates never appear in logs, admin, organization, or audit surfaces;
+- the map endpoint returns only the minimal owner-scoped projection, never message bodies.
+
+Implemented by `tests/unit/signal-schemas.test.ts`, `tests/unit/signal-service.test.ts`,
+`tests/unit/personal-dashboard.test.ts`, `tests/integration/personal-api.test.ts`,
+`tests/integration/map-points-api.test.ts`, `tests/component/workspace-checkin.test.tsx`,
+`tests/component/insights-page.test.tsx`, and `tests/component/map-page.test.tsx`.
+
+### B3. Grounded period insights
+
+- period keys parse strictly, including ISO week/year transitions, and future periods are refused;
+- sparse periods produce a deterministic result with no model call;
+- unchanged sources and repeated request IDs reuse the stored result without a second model call;
+- invalid structured output, foreign evidence IDs, and clinical language are rejected with
+  nothing stored;
+- source mutations and deletions mark derived periods stale;
+- deleting an insight removes only the derived document;
+- per-instance rate limits plus a Firestore-backed generation lease (one in-flight generation per
+  user and period across all server instances, with a 60-second expiry) bound model spend.
+
+Implemented by `tests/unit/periods.test.ts`, `tests/unit/insight-service.test.ts`, and
+`tests/integration/insights-api.test.ts`.
+
 ### C. Organization isolation and roles
 
 - active member can perform only member operations in their organization;
@@ -122,7 +156,37 @@ For every personal resource type and operation, prove:
 - ordinary member cannot invite, promote, remove, or alter role fields;
 - authorized owner action is transactionally rechecked;
 - organization owner/admin cannot access any member's personal workspace;
-- concurrent membership removal prevents a stale authorized write.
+- concurrent membership removal prevents a stale authorized write;
+- the full owner/admin/member/viewer matrix is enforced for every action, including that only the
+  owner may invite or govern admins, and nobody may mutate themselves or the owner;
+- invitations are one-time, expiring, hash-stored, constant-time compared, transactionally
+  accepted, and replay-safe across users and retries;
+- suspended memberships and suspended organizations authorize nothing;
+- organization model context contains only that organization's records, and a viewer can never
+  trigger a model call;
+- sensitive organization mutations require recent revocation-checked authentication.
+
+Implemented by `tests/unit/organization-roles.test.ts`,
+`tests/unit/organization-service.test.ts`, `tests/integration/organization-api.test.ts`, and
+`tests/component/organizations.test.tsx`.
+
+### C2. Platform administration
+
+- every `/admin` route denies ordinary users, suspended admins, and stale authentication on
+  mutations;
+- self-targeted role or status changes are refused;
+- the last active super admin is protected transactionally, including under concurrent demotion;
+- mutations fail closed when the access-control counter was never bootstrapped;
+- every mutation records a fixed-schema audit event with a bounded operational reason;
+- platform suspension blocks all Cognaxis APIs without deleting data, and restoration re-enables
+  access;
+- no admin response contains private journal content, session identifiers, coordinates, or
+  wellbeing data (canary-verified);
+- overview metrics distinguish "unavailable" from a legitimate zero.
+
+Implemented by `tests/unit/platform-user-service.test.ts`,
+`tests/integration/platform-user-boundary.test.ts`, `tests/integration/admin-api.test.ts`, and
+`tests/component/admin-page.test.tsx`.
 
 ### D. Firestore and IAM
 

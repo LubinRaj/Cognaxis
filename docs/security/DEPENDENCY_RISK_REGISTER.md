@@ -1,6 +1,24 @@
 # Dependency Risk Register
 
-Last reviewed: 31 August 2026
+Last reviewed: 3 September 2026
+
+## Extended-features dependency review (3 September 2026)
+
+The extended-features remediation regenerated `package-lock.json` from the reviewed
+`package.json` (the previously committed lockfile did not match the manifest and blocked
+`npm ci`), removed the unapproved `bun.lock`, and added exactly two production dependencies.
+`npm audit` after regeneration still reports only the six moderate findings of the pre-existing
+D-01 path; no new advisory of any severity was introduced.
+
+| Package | Version | Placement | Purpose | Licence | Notes |
+|---|---|---|---|---|---|
+| `react-router-dom` | ^7.18 | Browser | Authenticated routes with deep links, history, and lazy loading | MIT | The specification permits one established router; no custom routing framework was written |
+| `@googlemaps/js-api-loader` | ^2.1 | Browser, dynamically imported | Official on-demand Maps JavaScript API loader | Apache-2.0 | Loaded only inside the lazily routed map/location surfaces via `import()`; never part of the entry chunk |
+
+Packages that the earlier commit had injected into the lockfile without manifest entries or any
+import (`recharts`, `d3-*`, `date-fns`, a second `react-router` copy) were removed by the
+regeneration. Charts are rendered by an internal accessible SVG component, and date/period
+arithmetic uses the platform `Intl` API, so no charting or date library was added.
 
 ## Known advisories
 

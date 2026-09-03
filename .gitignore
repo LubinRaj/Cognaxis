@@ -46,3 +46,4 @@ playwright-report/
 tmp/
 *.log
 docs/*.md
+docs/plans/

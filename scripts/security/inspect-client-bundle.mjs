@@ -23,6 +23,9 @@ if (entryScripts.length === 0) failures.push("No entry chunk was produced.");
 if (authScripts.length === 0) {
   failures.push("The authentication surface was not emitted as a separate chunk.");
 }
+if (scripts.some((name) => name.startsWith("jsx-dev-runtime-"))) {
+  failures.push("The client contains React's development JSX runtime; rebuild in production mode.");
+}
 
 // FirebaseUI must stay out of the entry chunk so the authenticated workspace never loads
 // credential form code.

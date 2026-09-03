@@ -66,7 +66,10 @@ function messageOf(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export function useWorkspaceController(user: User): WorkspaceController {
+export function useWorkspaceController(
+  user: User,
+  initialSessionId?: string,
+): WorkspaceController {
   const { reportSessionExpired, reportEmailVerificationRequired } = useAuth();
 
   const api = useMemo(
@@ -124,6 +127,8 @@ export function useWorkspaceController(user: User): WorkspaceController {
   // session the user chose last.
   const sessionRequestId = useRef(0);
   const pendingSelection = useRef<string | null>(null);
+  // A deep-linked reflection is honored exactly once; afterwards the newest reflection wins.
+  const initialSelection = useRef<string | null>(initialSessionId ?? null);
 
   useEffect(() => {
     mounted.current = true;
@@ -170,7 +175,13 @@ export function useWorkspaceController(user: User): WorkspaceController {
         if (!active || !mounted.current) return;
         setSessions(list);
         setWorkspaceStatus("ready");
-        if (list[0]) await loadSessionDetail(list[0].id);
+        const preferred = initialSelection.current;
+        initialSelection.current = null;
+        const target =
+          preferred && list.some((session) => session.id === preferred)
+            ? preferred
+            : list[0]?.id;
+        if (target) await loadSessionDetail(target);
       } catch (error) {
         if (!active || !mounted.current) return;
         setWorkspaceStatus("error");

@@ -154,6 +154,23 @@ export class FirestoreJournalRepository implements JournalRepository {
     return toSession(document.id, document.data() as StoredSession);
   }
 
+  async listSessionsCreatedSince(
+    uid: string,
+    sinceIso: string,
+    limit: number,
+  ): Promise<JournalSession[]> {
+    const snapshot = await this.firestore
+      .collection(`users/${uid}/personalSessions`)
+      .where("createdAt", ">=", Timestamp.fromDate(new Date(sinceIso)))
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
+
+    return snapshot.docs.map((document) =>
+      toSession(document.id, document.data() as StoredSession),
+    );
+  }
+
   async listMessages(
     uid: string,
     sessionId: string,

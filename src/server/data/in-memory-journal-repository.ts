@@ -62,6 +62,18 @@ export class InMemoryJournalRepository implements JournalRepository {
     return session ? structuredClone(session) : null;
   }
 
+  async listSessionsCreatedSince(
+    uid: string,
+    sinceIso: string,
+    limit: number,
+  ): Promise<JournalSession[]> {
+    return [...this.user(uid).sessions.values()]
+      .filter((session) => session.createdAt >= sinceIso)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, limit)
+      .map((session) => structuredClone(session));
+  }
+
   async listMessages(
     uid: string,
     sessionId: string,

@@ -1,8 +1,25 @@
-import type { PersonalSignal, UpsertSignalInput } from "../../shared/schemas.js";
+import type { PersonalSignal } from "../../shared/schemas.js";
+
+export type SignalWrite = {
+  moodScore: PersonalSignal["moodScore"];
+  energyScore: PersonalSignal["energyScore"];
+  emotions: PersonalSignal["emotions"];
+  note: string | null;
+  location: PersonalSignal["location"];
+  localDate: string;
+  timezone: string;
+  createdBy: string;
+  scopeId: string;
+};
 
 export interface SignalRepository {
-  getSignal(uid: string, sessionId: string): Promise<PersonalSignal | null>;
-  upsertSignal(uid: string, sessionId: string, input: UpsertSignalInput): Promise<PersonalSignal>;
-  deleteSignal(uid: string, sessionId: string): Promise<boolean>;
-  listSignals(uid: string, limit?: number): Promise<PersonalSignal[]>;
+  get(uid: string, sessionId: string): Promise<PersonalSignal | null>;
+  upsert(uid: string, sessionId: string, write: SignalWrite): Promise<PersonalSignal>;
+  delete(uid: string, sessionId: string): Promise<boolean>;
+  listRange(
+    uid: string,
+    fromLocalDate: string,
+    toLocalDate: string,
+    limit: number,
+  ): Promise<PersonalSignal[]>;
 }

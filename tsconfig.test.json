@@ -10,7 +10,9 @@
     "src/shared",
     "tests/unit",
     "tests/integration",
-    "vitest.config.ts"
+    "tests/emulator",
+    "vitest.config.ts",
+    "vitest.rules.config.ts"
   ],
   "exclude": []
 }

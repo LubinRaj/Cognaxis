@@ -22,28 +22,50 @@ Cognaxis combines an authenticated conversational workspace with permission-scop
 
 ## Implementation status
 
-Implemented in the current repository:
+Implemented and verified by the local automated suite:
 
-- React + TypeScript + Vite application with responsive, themed authentication and workspace interfaces;
-- Google and email/password authentication flows with Firebase SDK-managed token lifecycle;
-- authenticated API client using Firebase bearer tokens;
-- Express API with Firebase Admin token verification and server-side authorization middleware;
-- personal conversations, summaries, reflection history, export, deletion, signals, and day/week insights;
-- organization membership and invitation workflows with role-gated administration;
-- platform administration routes and UI protected by a dedicated super-admin boundary;
-- server-only Gemini calls with bounded context and structured-output validation;
+- React + TypeScript + Vite authenticated interface with real routes (`/app/journal`,
+  `/app/insights`, `/app/map`, `/app/organizations`, `/app/organizations/:orgId`, `/app/admin`,
+  `/join`), deep links, browser history, and lazy-loaded feature modules;
+- Firebase Google and email/password sign-in with SDK-managed token lifecycle, verification, and
+  password reset;
+- Express API behind one shared private pipeline: token verification, per-user rate limiting,
+  verified email, live platform-status enforcement, and private/no-store responses;
+- personal sessions, messages, summaries, exports, and cascade deletion under
+  `users/{verifiedUid}`, including signal and derived-insight cleanup;
+- optional per-reflection check-ins (mood and energy 1–5, controlled emotions, private note,
+  opt-in exact/approximate location) with strict validation and honest precision reduction;
+- deterministic 7/30/90-day insights dashboard computed server-side from self-reports only;
+- on-demand daily and weekly Gemini recaps that are grounded, schema-validated,
+  evidence-checked, idempotent, staleness-aware, and never stored when invalid;
+- a private map endpoint and page with a synchronized accessible list that works without Google
+  Maps and upgrades to the official Maps JavaScript API when a restricted browser key is built in;
+- organization workspaces with transactional creation, one-time hashed invitations accepted
+  atomically, a server-enforced owner/admin/member/viewer matrix, organization-scoped Gemini
+  conversations and summaries, settings, member management, and fixed-schema audit events;
+- platform administration for an offline-bootstrapped super admin: metadata-only overview and
+  usage counters, a paginated user directory, transactional role/status mutations protected by an
+  active-super-admin counter, organization suspension, and an append-only audit trail;
+- server-enforced feature flags surfaced through `/api/v1/me/capabilities`;
+- server-only Gemini calls with bounded context and structured output validation;
 - Secret Manager credential adapter using Application Default Credentials;
-- Zod validation, exact-origin CORS, security headers, body limits, private caching, redacted errors, and rate limits;
-- deny-by-default Firestore client rules and synthetic negative security tests.
+- Zod validation, exact-origin CORS, security headers, body limits, private caching, sanitized
+  logging and errors, and per-operation rate limits (counted per running instance; transactional
+  request-id idempotency in the data layer is the cross-instance duplicate protection);
+- deny-by-default Firestore client rules and versioned composite indexes;
+- 560+ synthetic unit, repository, integration, and component tests covering the cross-user,
+  cross-organization, role-matrix, injection, and admin non-disclosure boundaries.
 
 Production deployment also requires the external configuration described below:
 
-- attach Firebase to the target Google Cloud project;
-- enable the required sign-in providers and register authorized domains;
-- create the Firestore database in the selected region;
+- attach Firebase to the ideathon Google Cloud project;
+- enable the sign-in providers and register authorized domains;
+- create the Firestore database, deploy the deny-all rules and the composite indexes;
 - create the Gemini secret and dedicated Cloud Run runtime identity;
+- create and restrict a separate Google Maps JavaScript browser key;
 - grant secret-specific and datastore-specific IAM;
 - configure Cloud Run environment values and deploy;
+- bootstrap the first super admin with the reviewed offline script;
 - run emulator and deployed synthetic-user security tests.
 
 No real credentials or private user content belong in this repository.
@@ -53,12 +75,16 @@ No real credentials or private user content belong in this repository.
 ```text
 Untrusted browser
   -> Firebase Authentication
+  -> Google Maps JavaScript API (only on map/location screens, separate restricted browser key)
   -> HTTPS Express API with Firebase ID token
-      -> verify token and derive uid
-      -> validate and authorize before data access
-      -> users/{verifiedUid}/personalSessions/...
-      -> users/{verifiedUid}/personalMemories/...
-      -> Gemini with minimum authorized context
+      -> verify token, derive uid, enforce verified email and active platform status
+      -> resolve exactly one scope: personal(uid) | organization(orgId, role) | platform admin
+      -> validate and authorize before every Firestore read or Gemini call
+      -> users/{verifiedUid}/personalSessions|personalMemories|personalSignals|personalInsights
+      -> users/{verifiedUid}/settings/preferences, organizationMemberships (navigation edges)
+      -> organizations/{orgId}/members|invites|auditEvents|workspaceSessions|workspaceSummaries
+      -> platformUsers, platformControl/access, platformUsageDaily, platformAdminAudit
+      -> Gemini with minimum authorized scope-specific context
       -> Secret Manager through Cloud Run runtime identity
 ```
 
@@ -129,6 +155,26 @@ app but does not authorize database access. Restrict that key to the required Fi
 allow the Generative Language API on it, keep `firestore.rules` deny-by-default, and use a separate
 server-only Gemini key.
 
+For the private map, create one additional dedicated **Maps JavaScript browser key** and export it:
+
+```bash
+export VITE_GOOGLE_MAPS_API_KEY="<restricted-maps-browser-key>"
+```
+
+This key is compiled into the browser bundle by design and is a public identifier, not a secret.
+Before deploying, in Google Cloud **APIs & Services > Credentials**:
+
+1. add website (HTTP referrer) restrictions for `http://localhost:3000/*` and the exact production
+   Cloud Run origin;
+2. restrict the key's APIs to the **Maps JavaScript API only** — never Gemini/Generative Language,
+   Secret Manager, or any privileged Cloud API;
+3. set quotas and a budget alert for the key;
+4. never reuse it for server-side web-service calls; a future server geocoding need requires a
+   different key in Secret Manager.
+
+If the variable is absent at build time, Cognaxis still works: the map page and location previews
+degrade to accessible list and coordinate views without contacting any third party.
+
 ### 2. Enable services and prepare the runtime identity
 
 Enable the APIs and create the Artifact Registry repository and dedicated service account once. If a
@@ -181,11 +227,11 @@ test -n "$SECRET_VERSION"
 ```
 
 Create Firestore in Native mode in `asia-south1` if it has not already been created. Then deploy the
-versioned deny-by-default client rules:
+versioned deny-by-default client rules and the composite indexes required by the extended queries:
 
 ```bash
 firebase login
-firebase deploy --only firestore:rules --project "$PROJECT_ID"
+firebase deploy --only firestore:rules,firestore:indexes --project "$PROJECT_ID"
 ```
 
 ### 3. Build and push the reviewed image
@@ -212,6 +258,7 @@ docker build --platform linux/amd64 \
   --build-arg "VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}" \
   --build-arg "VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID}" \
   --build-arg "VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}" \
+  --build-arg "VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}" \
   --tag "$IMAGE" \
   .
 
@@ -238,7 +285,7 @@ gcloud run deploy "$SERVICE" \
   --timeout=60s \
   --min-instances=0 \
   --max-instances=3 \
-  --set-env-vars="APP_ORIGIN=https://pending.invalid,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GEMINI_MODEL=gemini-3.7-flash,GEMINI_API_KEY_SECRET=projects/${PROJECT_NUMBER}/secrets/${SECRET_NAME}/versions/${SECRET_VERSION}" \
+  --set-env-vars="APP_ORIGIN=https://pending.invalid,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GEMINI_MODEL=gemini-3.7-flash,GEMINI_API_KEY_SECRET=projects/${PROJECT_NUMBER}/secrets/${SECRET_NAME}/versions/${SECRET_VERSION},FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}" \
   --labels="dev-tutorial=cloud-run-ai-challenge"
 
 export SERVICE_URL="$(gcloud run services describe "$SERVICE" \
@@ -268,7 +315,25 @@ Restrict the Firebase browser key to the required Firebase APIs and approved web
 a recommended post-MVP hardening layer; it does not replace Firebase Authentication, backend token
 verification, authorization, or Firestore rules.
 
-### 6. Verify the release
+### 6. Bootstrap the first super admin
+
+There is deliberately no HTTP endpoint that can create a platform administrator. After the target
+person has signed in to the deployed application at least once, the project owner runs the
+reviewed offline script with credentials that may write to Firestore:
+
+```bash
+GOOGLE_CLOUD_PROJECT="$PROJECT_ID" npx tsx scripts/admin/bootstrap-super-admin.ts <uid>
+```
+
+In one transaction it promotes `platformUsers/<uid>` and initializes the
+`platformControl/access` active-super-admin counter. Until this has been run, every admin role or
+status mutation fails closed with `ACCESS_CONTROL_UNINITIALIZED`.
+
+Server-enforced feature flags (`FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`,
+`FEATURE_ADMIN`) default to enabled; set any of them to `false` in the Cloud Run environment to
+disable a module and hide its navigation without a code change.
+
+### 7. Verify the release
 
 ```bash
 curl --fail --silent --show-error "${SERVICE_URL}/api/health"
@@ -284,10 +349,14 @@ The health endpoint must return `{"status":"ok"}`. The service description must 
 - `cognaxis-runtime@ideathon-journal.iam.gserviceaccount.com` as the runtime identity;
 - the submitted public Cloud Run URL.
 
-Finally, use synthetic accounts to test Google sign-in, email verification, password reset, one real
-Gemini conversation, Firestore persistence, session deletion, and User A/User B isolation. Confirm
-private API calls without a valid Firebase token return `401`, inspect Cloud Run logs for redaction,
-and verify the browser bundle contains no Gemini key, service-account credential, or private content.
+Finally, use synthetic accounts to walk the deployed journeys: Google sign-in, email verification,
+password reset, one real Gemini conversation with persistence and deletion, a check-in with an
+approximate location, a generated daily recap, the private map, an organization with an invited
+viewer who can read but not write, an Org B account that cannot reach Org A, and the super admin
+seeing metadata and audit events but no private artifact. Confirm private API calls without a valid
+Firebase token return `401`, that a suspended synthetic account is blocked without data loss,
+inspect Cloud Run logs for redaction, and verify the browser bundle contains no Gemini key,
+service-account credential, or private content.
 
 ## Verification
 
@@ -310,6 +379,8 @@ npm audit
 - [Security Test Plan](docs/security/SECURITY_TEST_PLAN.md)
 - [Phase 1 Evidence Checklist](docs/evidence/PHASE_1_EVIDENCE.md)
 - [Phase 2 Implementation Evidence](docs/evidence/PHASE_2_IMPLEMENTATION_EVIDENCE.md)
+- [Phase 3 Product UI Evidence](docs/evidence/PHASE_3_PRODUCT_UI_EVIDENCE.md)
+- [Phase 4 Extended Features Evidence](docs/evidence/PHASE_4_EXTENDED_FEATURES_EVIDENCE.md)
 - [Cloud Setup Checklist](docs/deployment/CLOUD_SETUP_CHECKLIST.md)
 
 ## Repository policy

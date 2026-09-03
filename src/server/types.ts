@@ -9,6 +9,7 @@ import type {
 export type AuthenticatedPrincipal = {
   uid: string;
   email?: string;
+  displayName?: string;
   emailVerified: boolean;
   signInProvider?: string;
   issuedAt: number;

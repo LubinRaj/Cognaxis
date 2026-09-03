@@ -2,18 +2,18 @@ import type { NextFunction, Response } from "express";
 import { forbidden } from "../errors.js";
 import type { AuthenticatedRequest } from "../types.js";
 
-// Requires the active platform user to be a super admin.
-// Must be used after requireActivePlatformUser.
+// Runs after requireActiveUser, so request.platformUser reflects the live Firestore record for
+// this request rather than any cached claim.
 export function requireSuperAdmin(
   request: AuthenticatedRequest,
   _response: Response,
   next: NextFunction,
 ): void {
-  if (!request.platformUser || request.platformUser.platformRole !== "super_admin") {
+  const user = request.platformUser;
+  if (!user || user.platformRole !== "super_admin" || user.status !== "active") {
     next(forbidden());
     return;
   }
-  
-  request.platformAdminScope = { type: "platform_admin", uid: request.principal.uid, role: "super_admin" };
+  request.platformAdminScope = { type: "platform_admin", uid: user.uid, role: "super_admin" };
   next();
 }

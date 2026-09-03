@@ -1,59 +1,146 @@
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  getFirestore,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Firestore,
+  type Timestamp,
+} from "firebase-admin/firestore";
 import type { PersonalInsight } from "../../shared/schemas.js";
+import type {
+  GenerationLeaseRequest,
+  InsightRepository,
+  InsightWrite,
+} from "./insight-repository.js";
 
-function timestampToIso(value: unknown): string {
-  if (value instanceof Timestamp) return value.toDate().toISOString();
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") return value;
-  return new Date().toISOString();
+type StoredInsight = Omit<PersonalInsight, "createdAt" | "updatedAt"> & {
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
+function toIso(value: Timestamp | undefined): string {
+  return value ? value.toDate().toISOString() : new Date(0).toISOString();
 }
 
-export class FirestoreInsightRepository {
-  async getInsight(uid: string, periodKey: string): Promise<PersonalInsight | null> {
-    const doc = await getFirestore()
-      .collection("users")
-      .doc(uid)
-      .collection("personalInsights")
-      .doc(periodKey)
-      .get();
-    if (!doc.exists) return null;
-    const data = doc.data() as PersonalInsight & { createdAt: unknown; updatedAt: unknown };
-    return {
-      ...data,
-      createdAt: timestampToIso(data.createdAt),
-      updatedAt: timestampToIso(data.updatedAt),
-    };
+function mapInsight(snapshot: DocumentSnapshot): PersonalInsight {
+  const stored = snapshot.data() as StoredInsight;
+  return {
+    ...stored,
+    stale: stored.stale === true,
+    createdAt: toIso(stored.createdAt),
+    updatedAt: toIso(stored.updatedAt),
+  };
+}
+
+// Every path is rooted at the verified owner's document, so no query can cross user boundaries.
+export class FirestoreInsightRepository implements InsightRepository {
+  constructor(private readonly firestore: Firestore = getFirestore()) {}
+
+  private collection(uid: string) {
+    return this.firestore.collection("users").doc(uid).collection("personalInsights");
   }
 
-  async saveInsight(uid: string, insight: PersonalInsight): Promise<void> {
-    const docRef = getFirestore()
-      .collection("users")
-      .doc(uid)
-      .collection("personalInsights")
-      .doc(insight.periodKey);
-    await docRef.set({
-      ...insight,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+  private reference(uid: string, periodKey: string): DocumentReference {
+    return this.collection(uid).doc(periodKey);
+  }
+
+  async get(uid: string, periodKey: string): Promise<PersonalInsight | null> {
+    const snapshot = await this.reference(uid, periodKey).get();
+    return snapshot.exists ? mapInsight(snapshot) : null;
+  }
+
+  async save(uid: string, insight: InsightWrite): Promise<PersonalInsight> {
+    const reference = this.reference(uid, insight.periodKey);
+    await this.firestore.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      transaction.set(reference, {
+        ...insight,
+        createdAt: existing.exists
+          ? (existing.data() as StoredInsight).createdAt
+          : FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     });
+    const saved = await reference.get();
+    return mapInsight(saved);
   }
 
-  async listInsights(uid: string, periodType: string, limit = 20): Promise<PersonalInsight[]> {
-    const snap = await getFirestore()
-      .collection("users")
-      .doc(uid)
-      .collection("personalInsights")
+  async delete(uid: string, periodKey: string): Promise<boolean> {
+    const reference = this.reference(uid, periodKey);
+    const snapshot = await reference.get();
+    if (!snapshot.exists) return false;
+    await reference.delete();
+    return true;
+  }
+
+  async list(uid: string, periodType: "day" | "week", limit: number): Promise<PersonalInsight[]> {
+    const snapshot = await this.collection(uid)
       .where("periodType", "==", periodType)
       .orderBy("periodStart", "desc")
       .limit(limit)
       .get();
-    return snap.docs.map((doc) => {
-      const data = doc.data() as PersonalInsight & { createdAt: unknown; updatedAt: unknown };
-      return {
-        ...data,
-        createdAt: timestampToIso(data.createdAt),
-        updatedAt: timestampToIso(data.updatedAt),
-      };
+    return snapshot.docs.map((document) => mapInsight(document));
+  }
+
+  async markStale(uid: string, periodKeys: string[]): Promise<void> {
+    const batch = this.firestore.batch();
+    let hasUpdates = false;
+    for (const periodKey of periodKeys) {
+      const snapshot = await this.reference(uid, periodKey).get();
+      if (snapshot.exists && (snapshot.data() as StoredInsight).stale !== true) {
+        batch.update(snapshot.ref, { stale: true, updatedAt: FieldValue.serverTimestamp() });
+        hasUpdates = true;
+      }
+    }
+    if (hasUpdates) await batch.commit();
+  }
+
+  private leaseReference(uid: string, periodKey: string): DocumentReference {
+    return this.firestore
+      .collection("users")
+      .doc(uid)
+      .collection("insightGenerationLeases")
+      .doc(periodKey);
+  }
+
+  // The lease transaction is a single short read-then-write; the model call itself never runs
+  // inside a Firestore transaction.
+  async acquireGenerationLease(
+    uid: string,
+    periodKey: string,
+    lease: GenerationLeaseRequest,
+  ): Promise<boolean> {
+    const reference = this.leaseReference(uid, periodKey);
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (snapshot.exists) {
+        const stored = snapshot.data() as { holder: string; expiresAtIso: string };
+        if (stored.expiresAtIso > lease.nowIso && stored.holder !== lease.holder) return false;
+      }
+      transaction.set(reference, { holder: lease.holder, expiresAtIso: lease.expiresAtIso });
+      return true;
     });
+  }
+
+  async releaseGenerationLease(uid: string, periodKey: string, holder: string): Promise<void> {
+    const reference = this.leaseReference(uid, periodKey);
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (snapshot.exists && (snapshot.data() as { holder: string }).holder === holder) {
+        transaction.delete(reference);
+      }
+    });
+  }
+
+  async listCitingSession(uid: string, sessionId: string): Promise<PersonalInsight[]> {
+    const [bySession, bySignal] = await Promise.all([
+      this.collection(uid).where("sourceSessionIds", "array-contains", sessionId).get(),
+      this.collection(uid).where("sourceSignalSessionIds", "array-contains", sessionId).get(),
+    ]);
+    const unique = new Map<string, PersonalInsight>();
+    for (const document of [...bySession.docs, ...bySignal.docs]) {
+      unique.set(document.id, mapInsight(document));
+    }
+    return [...unique.values()];
   }
 }

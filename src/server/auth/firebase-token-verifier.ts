@@ -22,6 +22,7 @@ export class FirebaseTokenVerifier implements TokenVerifier {
     return {
       uid: decoded.uid,
       email: typeof decoded.email === "string" ? decoded.email : undefined,
+      displayName: typeof decoded.name === "string" ? decoded.name : undefined,
       emailVerified: decoded.email_verified === true,
       signInProvider: typeof signInProvider === "string" ? signInProvider : undefined,
       issuedAt: decoded.iat,

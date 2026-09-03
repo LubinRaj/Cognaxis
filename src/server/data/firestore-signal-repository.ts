@@ -1,137 +1,124 @@
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
-import type {
-  PersonalSignal,
-  UpsertSignalInput,
-  EmotionLabel,
-  PersonalSignalLocation,
-} from "../../shared/schemas.js";
-import type { SignalRepository } from "./signal-repository.js";
+import {
+  FieldValue,
+  getFirestore,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Firestore,
+  type Timestamp,
+} from "firebase-admin/firestore";
+import type { EmotionLabel, PersonalSignal, PersonalSignalLocation } from "../../shared/schemas.js";
+import type { SignalRepository, SignalWrite } from "./signal-repository.js";
 
-function timestampToIso(value: unknown): string {
-  if (value instanceof Timestamp) return value.toDate().toISOString();
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") return value;
-  return new Date().toISOString();
+type StoredSignal = {
+  sourceSessionId: string;
+  moodScore: PersonalSignal["moodScore"];
+  energyScore: PersonalSignal["energyScore"];
+  emotions: EmotionLabel[];
+  note: string | null;
+  location: PersonalSignalLocation | null;
+  localDate: string;
+  timezone: string;
+  capturedAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  scopeType: "personal";
+  scopeId: string;
+  schemaVersion: 1;
+};
+
+function toIso(value: Timestamp | undefined): string {
+  return value ? value.toDate().toISOString() : new Date(0).toISOString();
 }
 
-interface StoredSignalDoc {
-  sourceSessionId?: string;
-  moodScore?: (1 | 2 | 3 | 4 | 5) | null;
-  energyScore?: (1 | 2 | 3 | 4 | 5) | null;
-  emotions?: EmotionLabel[];
-  note?: string | null;
-  location?: PersonalSignalLocation | null;
-  localDate?: string;
-  timezone?: string;
-  capturedAt?: unknown;
-  updatedAt?: unknown;
-  createdBy?: string;
-  scopeType?: "personal";
-  scopeId?: string;
-  schemaVersion?: number;
+function mapSignal(snapshot: DocumentSnapshot): PersonalSignal {
+  const stored = snapshot.data() as StoredSignal;
+  return {
+    sourceSessionId: stored.sourceSessionId,
+    moodScore: stored.moodScore ?? null,
+    energyScore: stored.energyScore ?? null,
+    emotions: stored.emotions ?? [],
+    note: stored.note ?? null,
+    location: stored.location ?? null,
+    localDate: stored.localDate,
+    timezone: stored.timezone,
+    capturedAt: toIso(stored.capturedAt),
+    updatedAt: toIso(stored.updatedAt),
+    createdBy: stored.createdBy,
+    scopeType: "personal",
+    scopeId: stored.scopeId,
+    schemaVersion: 1,
+  };
 }
 
+// Every path is rooted at the verified owner's document, so no query can cross user boundaries.
 export class FirestoreSignalRepository implements SignalRepository {
-  private getDb() {
-    return getFirestore();
-  }
+  constructor(private readonly firestore: Firestore = getFirestore()) {}
 
-  async getSignal(uid: string, sessionId: string): Promise<PersonalSignal | null> {
-    const doc = await this.getDb()
-      .collection("users")
-      .doc(uid)
-      .collection("personalSignals")
-      .doc(sessionId)
-      .get();
-
-    if (!doc.exists) return null;
-    return this.mapSignal(doc);
-  }
-
-  async upsertSignal(uid: string, sessionId: string, input: UpsertSignalInput): Promise<PersonalSignal> {
-    const db = this.getDb();
-    const docRef = db.collection("users").doc(uid).collection("personalSignals").doc(sessionId);
-
-    // If input is effectively empty, delete the signal instead
-    if (
-      input.moodScore === null &&
-      input.energyScore === null &&
-      input.emotions.length === 0 &&
-      !input.note &&
-      input.location === null
-    ) {
-      await docRef.delete();
-      throw new Error("Empty signal upsert results in deletion. Use deleteSignal directly if intentional.");
-    }
-
-    const now = FieldValue.serverTimestamp();
-    const data = {
-      sourceSessionId: sessionId,
-      moodScore: input.moodScore,
-      energyScore: input.energyScore,
-      emotions: input.emotions,
-      note: input.note || null,
-      location: input.location,
-      localDate: input.localDate,
-      timezone: input.timezone,
-      updatedAt: now,
-      createdBy: uid,
-      scopeType: "personal",
-      scopeId: uid,
-      schemaVersion: 1,
-    };
-
-    const doc = await docRef.get();
-    if (doc.exists) {
-      await docRef.update(data);
-    } else {
-      await docRef.set({ ...data, capturedAt: now });
-    }
-
-    const updated = await docRef.get();
-    return this.mapSignal(updated);
-  }
-
-  async deleteSignal(uid: string, sessionId: string): Promise<boolean> {
-    const docRef = this.getDb()
+  private reference(uid: string, sessionId: string): DocumentReference {
+    return this.firestore
       .collection("users")
       .doc(uid)
       .collection("personalSignals")
       .doc(sessionId);
-    
-    await docRef.delete();
+  }
+
+  async get(uid: string, sessionId: string): Promise<PersonalSignal | null> {
+    const snapshot = await this.reference(uid, sessionId).get();
+    return snapshot.exists ? mapSignal(snapshot) : null;
+  }
+
+  async upsert(uid: string, sessionId: string, write: SignalWrite): Promise<PersonalSignal> {
+    const reference = this.reference(uid, sessionId);
+
+    await this.firestore.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      transaction.set(reference, {
+        sourceSessionId: sessionId,
+        moodScore: write.moodScore,
+        energyScore: write.energyScore,
+        emotions: write.emotions,
+        note: write.note,
+        location: write.location,
+        localDate: write.localDate,
+        timezone: write.timezone,
+        capturedAt: existing.exists
+          ? (existing.data() as StoredSignal).capturedAt
+          : FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdBy: write.createdBy,
+        scopeType: "personal",
+        scopeId: write.scopeId,
+        schemaVersion: 1,
+      });
+    });
+
+    const saved = await reference.get();
+    return mapSignal(saved);
+  }
+
+  async delete(uid: string, sessionId: string): Promise<boolean> {
+    const reference = this.reference(uid, sessionId);
+    const snapshot = await reference.get();
+    if (!snapshot.exists) return false;
+    await reference.delete();
     return true;
   }
 
-  async listSignals(uid: string, limit = 50): Promise<PersonalSignal[]> {
-    const snap = await this.getDb()
+  async listRange(
+    uid: string,
+    fromLocalDate: string,
+    toLocalDate: string,
+    limit: number,
+  ): Promise<PersonalSignal[]> {
+    const snapshot = await this.firestore
       .collection("users")
       .doc(uid)
       .collection("personalSignals")
+      .where("localDate", ">=", fromLocalDate)
+      .where("localDate", "<=", toLocalDate)
       .orderBy("localDate", "desc")
       .limit(limit)
       .get();
-      
-    return snap.docs.map(doc => this.mapSignal(doc));
-  }
-
-  private mapSignal(doc: FirebaseFirestore.DocumentSnapshot): PersonalSignal {
-    const data = (doc.data() ?? {}) as StoredSignalDoc;
-    return {
-      sourceSessionId: data.sourceSessionId ?? doc.id,
-      moodScore: data.moodScore ?? null,
-      energyScore: data.energyScore ?? null,
-      emotions: data.emotions ?? [],
-      note: data.note ?? null,
-      location: data.location ?? null,
-      localDate: data.localDate ?? "",
-      timezone: data.timezone ?? "UTC",
-      capturedAt: timestampToIso(data.capturedAt),
-      updatedAt: timestampToIso(data.updatedAt),
-      createdBy: data.createdBy ?? "",
-      scopeType: "personal",
-      scopeId: data.scopeId ?? "",
-      schemaVersion: 1,
-    };
+    return snapshot.docs.map((document) => mapSignal(document));
   }
 }

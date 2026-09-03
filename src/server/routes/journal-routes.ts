@@ -30,37 +30,38 @@ function route(
   };
 }
 
+// Authentication, per-user rate limiting, verified email, and active platform status are enforced
+// by the shared private pipeline in app.ts before this router runs.
 export function createJournalRouter(
   service: JournalService,
   verifier: TokenVerifier,
 ): Router {
   const router = Router();
-  router.use(authenticate(verifier));
-  router.use(
-    rateLimit({
-      windowMs: 60 * 1_000,
-      limit: 45,
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-      keyGenerator: (request) => request.principal.uid,
-      message: {
-        error: { code: "RATE_LIMITED", message: "Please slow down and try again." },
-      },
-    }),
-  );
-  // Verification is enforced after authentication and rate limiting, and before any route handler,
-  // repository read, or model call can run.
-  router.use(requireVerifiedEmail);
-  router.use((_request, response, next) => {
-    response.setHeader("cache-control", "private, no-store");
-    next();
+
+  // Model-backed routes carry a tighter per-user budget than plain reads. The counter lives in
+  // this instance's memory, so the effective platform-wide ceiling scales with instance count;
+  // the per-user duplicate protections in the data layer do not depend on it.
+  const modelLimiter = rateLimit({
+    windowMs: 60 * 1_000,
+    limit: 12,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (request) => request.principal.uid,
+    message: {
+      error: { code: "RATE_LIMITED", message: "Please wait before sending more messages." },
+    },
   });
 
   router.get(
     "/sessions",
     route(async (request, response) => {
-      const { limit } = listQuerySchema.parse(request.query);
-      response.json({ sessions: await service.listSessions(request.principal.uid, limit) });
+      const parsed = listQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+      }
+      response.json({
+        sessions: await service.listSessions(request.principal.uid, parsed.data.limit),
+      });
     }),
   );
 
@@ -84,6 +85,7 @@ export function createJournalRouter(
 
   router.post(
     "/sessions/:sessionId/messages",
+    modelLimiter,
     validateBody(createMessageSchema),
     route(async (request, response) => {
       const { content, requestId } = createMessageSchema.parse(request.body);
@@ -99,6 +101,7 @@ export function createJournalRouter(
 
   router.post(
     "/sessions/:sessionId/summarize",
+    modelLimiter,
     route(async (request, response) => {
       const summary = await service.summarize(request.principal.uid, sessionId(request));
       response.json({ summary });

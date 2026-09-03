@@ -10,6 +10,7 @@ import type {
   PersistedMessageExchange,
 } from "../data/journal-repository.js";
 import type { ConversationModel } from "./conversation-model.js";
+import type { UsageRecorder } from "./usage-recorder.js";
 
 const MAX_STORED_MESSAGES = 120;
 const MODEL_CONTEXT_MESSAGES = 24;
@@ -35,14 +36,43 @@ function requireMatchingRequest(
   return exchange;
 }
 
+export type SessionDeletionCascade = (uid: string, sessionId: string) => Promise<void>;
+/**
+ * Notified with the creation instant of the session whose content changed, so derived artifacts
+ * are invalidated for the period that actually contains the session — not the wall-clock period
+ * of the edit.
+ */
+export type ContentChangeListener = (uid: string, sessionCreatedAt: string) => Promise<void>;
+
 export class JournalService {
   constructor(
     private readonly repository: JournalRepository,
     private readonly model: ConversationModel,
+    private readonly deletionCascades: SessionDeletionCascade[] = [],
+    private readonly contentChangeListeners: ContentChangeListener[] = [],
+    private readonly usage?: UsageRecorder,
   ) {}
 
+  // Derived-artifact bookkeeping must never fail a successful journal operation; a missed
+  // staleness mark is recovered at the next explicit generation, which re-checks fingerprints.
+  private async notifyContentChanged(uid: string, sessionCreatedAt: string): Promise<void> {
+    for (const listener of this.contentChangeListeners) {
+      try {
+        await listener(uid, sessionCreatedAt);
+      } catch {
+        console.error(
+          JSON.stringify({ severity: "WARNING", event: "insight_invalidation_failed" }),
+        );
+      }
+    }
+  }
+
   async createSession(uid: string, title?: string): Promise<JournalSession> {
-    return this.repository.createSession(uid, title ?? "New reflection");
+    const session = await this.repository.createSession(uid, title ?? "New reflection");
+    // A new reflection changes the reflection count of its own period.
+    await this.notifyContentChanged(uid, session.createdAt);
+    await this.usage?.record("sessionsCreated");
+    return session;
   }
 
   async listSessions(uid: string, limit: number): Promise<JournalSession[]> {
@@ -133,6 +163,9 @@ export class JournalService {
       }
     }
 
+    await this.notifyContentChanged(uid, latestSession.createdAt);
+    await this.usage?.record("messageExchangesCompleted");
+
     return {
       userMessage: persisted.userMessage,
       assistantMessage: persisted.assistantMessage,
@@ -151,15 +184,27 @@ export class JournalService {
       throw new AppError(409, "NOT_ENOUGH_CONTEXT", "Add more to the conversation first.");
     }
     const output = await this.model.summarize(messages.slice(-MODEL_CONTEXT_MESSAGES));
-    return this.repository.saveSummary(uid, {
+    const saved = await this.repository.saveSummary(uid, {
       ...output,
       sourceSessionId: sessionId,
       sourceMessageIds: messages.map((message) => message.id),
       sourceMessageCount: session.messageCount,
     });
+    await this.notifyContentChanged(uid, session.createdAt);
+    await this.usage?.record("sessionSummariesGenerated");
+    return saved;
   }
 
   async deleteSession(uid: string, sessionId: string): Promise<void> {
+    const session = await this.repository.getSession(uid, sessionId);
+    if (!session) throw notFound();
+
+    // Derived artifacts are removed before the session itself so a failure part-way can never
+    // leave an orphaned signal, pin, or stale derived record pointing at a deleted reflection.
+    for (const cascade of this.deletionCascades) {
+      await cascade(uid, sessionId);
+    }
+
     const deleted = await this.repository.deleteSession(uid, sessionId);
     if (!deleted) throw notFound();
   }

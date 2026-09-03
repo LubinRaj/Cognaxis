@@ -1,160 +1,212 @@
-import { Router, type Response } from "express";
-import { authenticate } from "../middleware/authenticate.js";
-import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
-import { requireActivePlatformUser } from "../middleware/require-platform-user.js";
-import { requireSuperAdmin } from "../middleware/require-super-admin.js";
-import type { AuthenticatedRequest, TokenVerifier } from "../types.js";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { Router, type NextFunction, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { validateBody } from "../middleware/validate.js";
+import {
+  documentIdSchema,
+  updateOrganizationStatusSchema,
+  updatePlatformRoleSchema,
+  updatePlatformStatusSchema,
+} from "../../shared/schemas.js";
+import type { AppConfig } from "../config/env.js";
 import { AppError } from "../errors.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { requireRecentAuthentication } from "../middleware/recent-auth.js";
+import { requireFeature } from "../middleware/require-feature.js";
+import { requireSuperAdmin } from "../middleware/require-super-admin.js";
+import { requireVerifiedEmail } from "../middleware/require-verified-email.js";
+import { validateBody } from "../middleware/validate.js";
+import type { PlatformAdminService } from "../services/platform-admin-service.js";
+import type { AuthenticatedRequest, TokenVerifier } from "../types.js";
 
-function paramId(val: unknown): string {
-  if (typeof val === "string" && val.length > 0) return val;
-  if (Array.isArray(val) && typeof val[0] === "string") return val[0];
-  throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
+const cursorSchema = z.string().regex(/^[A-Za-z0-9_-]{1,512}$/).optional();
+
+const usersQuerySchema = z
+  .object({
+    query: z.string().trim().min(1).max(256).optional(),
+    role: z.enum(["user", "super_admin"]).optional(),
+    status: z.enum(["active", "suspended"]).optional(),
+    cursor: cursorSchema,
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+
+const organizationsQuerySchema = z
+  .object({
+    status: z.enum(["active", "suspended"]).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(50),
+  })
+  .strict();
+
+const auditQuerySchema = z
+  .object({
+    cursor: cursorSchema,
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+
+const uidParamSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+function route(handler: (request: AuthenticatedRequest, response: Response) => Promise<void>) {
+  return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+    void handler(request, response).catch(next);
+  };
 }
 
-function timestampToIso(value: unknown): string {
-  if (value instanceof Timestamp) return value.toDate().toISOString();
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") return value;
-  return new Date().toISOString();
-}
-
-interface PlatformUserDoc {
-  uid?: string;
-  email?: string;
-  platformRole?: "user" | "super_admin";
-  status?: "active" | "suspended";
-  firstSeenAt?: unknown;
-  lastLoginAt?: unknown;
-  updatedAt?: unknown;
-}
-
-const updateRoleSchema = z.object({
-  role: z.enum(["user", "super_admin"]),
-}).strict();
-
-const updateStatusSchema = z.object({
-  status: z.enum(["active", "suspended"]),
-}).strict();
-
-export function createPlatformAdminRoutes(verifier: TokenVerifier): Router {
+// Platform administration is operational metadata only. There is deliberately no route here for
+// personal sessions, messages, memories, signals, insights, locations, exports, or search — do
+// not add one for convenience.
+export function createAdminRouter(
+  config: AppConfig,
+  service: PlatformAdminService,
+  verifier: TokenVerifier,
+): Router {
   const router = Router();
-  router.use(authenticate(verifier));
-  router.use(requireVerifiedEmail);
-  router.use(requireActivePlatformUser);
+  router.use(requireFeature(config, "FEATURE_ADMIN"));
   router.use(requireSuperAdmin);
+  router.use(
+    rateLimit({
+      windowMs: 60 * 1_000,
+      limit: 30,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+      keyGenerator: (request) => request.principal.uid,
+      message: { error: { code: "RATE_LIMITED", message: "Please slow down and try again." } },
+    }),
+  );
 
-  router.get("/admin/metrics", async (_req: AuthenticatedRequest, res: Response, next) => {
-    try {
-      const db = getFirestore();
-      let totalUsers = 0;
-      let totalOrganizations = 0;
+  // Mutations get a tighter budget than admin reads. This counter is held in this instance's
+  // memory, so the platform-wide ceiling scales with instance count; the transactional actor
+  // recheck in the data layer does not depend on it.
+  const mutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1_000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (request) => request.principal.uid,
+    message: {
+      error: { code: "RATE_LIMITED", message: "Please wait before more administrative changes." },
+    },
+  });
 
-      try {
-        const usersSnap = await db.collection("platformUsers").count().get();
-        totalUsers = usersSnap.data().count;
+  const sensitive = [
+    mutationLimiter,
+    authenticate(verifier, true),
+    requireVerifiedEmail,
+    requireRecentAuthentication,
+    requireSuperAdmin,
+  ];
 
-        const orgsSnap = await db.collection("organizations").count().get();
-        totalOrganizations = orgsSnap.data().count;
-      } catch {
-        // Aggregation fallback
+  router.get(
+    "/admin/overview",
+    route(async (_request, response) => {
+      response.json({ overview: await service.overview() });
+    }),
+  );
+
+  router.get(
+    "/admin/users",
+    route(async (request, response) => {
+      const parsed = usersQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
       }
-
-      res.json({
-        totalUsers,
-        totalOrganizations,
-        totalSessions: 0,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.get("/admin/users", async (_req: AuthenticatedRequest, res: Response, next) => {
-    try {
-      const db = getFirestore();
-      const usersSnap = await db.collection("platformUsers").orderBy("firstSeenAt", "desc").limit(50).get();
-      const users = usersSnap.docs.map((doc) => {
-        const d = (doc.data() ?? {}) as PlatformUserDoc;
-        return {
-          uid: d.uid ?? doc.id,
-          email: d.email ?? "",
-          platformRole: d.platformRole ?? "user",
-          status: d.status ?? "active",
-          firstSeenAt: timestampToIso(d.firstSeenAt),
-          lastLoginAt: timestampToIso(d.lastLoginAt),
-          updatedAt: timestampToIso(d.updatedAt),
-        };
-      });
-      res.json({ users });
-    } catch (error) {
-      next(error);
-    }
-  });
+      response.json(
+        await service.listUsers({
+          query: parsed.data.query,
+          role: parsed.data.role,
+          status: parsed.data.status,
+          cursor: parsed.data.cursor ?? null,
+          limit: parsed.data.limit,
+        }),
+      );
+    }),
+  );
 
   router.patch(
     "/admin/users/:targetUid/role",
-    validateBody(updateRoleSchema),
-    async (req: AuthenticatedRequest, res: Response, next) => {
-      try {
-        const targetUid = paramId(req.params.targetUid);
-        const { role } = req.body as { role: "user" | "super_admin" };
-
-        if (targetUid === req.principal.uid) {
-          throw new AppError(400, "CANNOT_DEMOTE_SELF", "Super administrators cannot alter their own platform role.");
-        }
-
-        const db = getFirestore();
-        const userRef = db.collection("platformUsers").doc(targetUid);
-        const doc = await userRef.get();
-        if (!doc.exists) {
-          throw new AppError(404, "USER_NOT_FOUND", "Platform user not found.");
-        }
-
-        await userRef.update({
-          platformRole: role,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        res.json({ success: true, targetUid, platformRole: role });
-      } catch (error) {
-        next(error);
+    ...sensitive,
+    validateBody(updatePlatformRoleSchema),
+    route(async (request, response) => {
+      const parsedUid = uidParamSchema.safeParse(request.params.targetUid);
+      if (!parsedUid.success) {
+        throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
       }
-    },
+      const targetUid = parsedUid.data;
+      const user = await service.setUserRole(
+        request.principal.uid,
+        targetUid,
+        updatePlatformRoleSchema.parse(request.body),
+        request.requestId,
+      );
+      response.json({ user });
+    }),
   );
 
   router.patch(
     "/admin/users/:targetUid/status",
-    validateBody(updateStatusSchema),
-    async (req: AuthenticatedRequest, res: Response, next) => {
-      try {
-        const targetUid = paramId(req.params.targetUid);
-        const { status } = req.body as { status: "active" | "suspended" };
-
-        if (targetUid === req.principal.uid) {
-          throw new AppError(400, "CANNOT_SUSPEND_SELF", "Super administrators cannot suspend their own account.");
-        }
-
-        const db = getFirestore();
-        const userRef = db.collection("platformUsers").doc(targetUid);
-        const doc = await userRef.get();
-        if (!doc.exists) {
-          throw new AppError(404, "USER_NOT_FOUND", "Platform user not found.");
-        }
-
-        await userRef.update({
-          status,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        res.json({ success: true, targetUid, status });
-      } catch (error) {
-        next(error);
+    ...sensitive,
+    validateBody(updatePlatformStatusSchema),
+    route(async (request, response) => {
+      const parsedUid = uidParamSchema.safeParse(request.params.targetUid);
+      if (!parsedUid.success) {
+        throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
       }
-    },
+      const targetUid = parsedUid.data;
+      const user = await service.setUserStatus(
+        request.principal.uid,
+        targetUid,
+        updatePlatformStatusSchema.parse(request.body),
+        request.requestId,
+      );
+      response.json({ user });
+    }),
+  );
+
+  router.get(
+    "/admin/organizations",
+    route(async (request, response) => {
+      const parsed = organizationsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+      }
+      response.json({
+        organizations: await service.listOrganizations(parsed.data.status, parsed.data.limit),
+      });
+    }),
+  );
+
+  router.patch(
+    "/admin/organizations/:orgId/status",
+    ...sensitive,
+    validateBody(updateOrganizationStatusSchema),
+    route(async (request, response) => {
+      const parsedOrgId = documentIdSchema.safeParse(request.params.orgId);
+      if (!parsedOrgId.success) {
+        throw new AppError(400, "INVALID_RESOURCE_ID", "The resource identifier is invalid.");
+      }
+      const organization = await service.setOrganizationStatus(
+        request.principal.uid,
+        parsedOrgId.data,
+        updateOrganizationStatusSchema.parse(request.body),
+        request.requestId,
+      );
+      response.json({ organization });
+    }),
+  );
+
+  router.get(
+    "/admin/audit",
+    route(async (request, response) => {
+      const parsed = auditQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+      }
+      response.json(await service.listAudit(parsed.data.cursor ?? null, parsed.data.limit));
+    }),
   );
 
   return router;

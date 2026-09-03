@@ -116,3 +116,53 @@ describe("journal message consistency", () => {
     expect(latestContext.at(-1)?.content).toBe("Thought 13");
   });
 });
+
+describe("content-change notifications", () => {
+  it("notifies listeners with the session's creation instant, not the wall clock", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new RecordingModel();
+    const notifications: Array<{ uid: string; sessionCreatedAt: string }> = [];
+    const service = new JournalService(
+      repository,
+      model,
+      [],
+      [
+        async (uid, sessionCreatedAt) => {
+          notifications.push({ uid, sessionCreatedAt });
+        },
+      ],
+    );
+
+    const session = await service.createSession("user_alpha");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "One thought.");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Another thought.");
+    await service.summarize("user_alpha", session.id);
+
+    // createSession, two messages, the automatic or explicit summary — every notification must
+    // carry the creation instant of the affected session so the correct period goes stale.
+    expect(notifications.length).toBeGreaterThanOrEqual(4);
+    for (const notification of notifications) {
+      expect(notification.uid).toBe("user_alpha");
+      expect(notification.sessionCreatedAt).toBe(session.createdAt);
+    }
+  });
+
+  it("keeps the journal operation successful when a listener fails", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new RecordingModel();
+    const service = new JournalService(repository, model, [], [
+      async () => {
+        throw new Error("listener down");
+      },
+    ]);
+
+    const session = await service.createSession("user_alpha");
+    const exchange = await service.addMessage(
+      "user_alpha",
+      session.id,
+      randomUUID(),
+      "Still succeeds.",
+    );
+    expect(exchange.assistantMessage.content).toContain("reply");
+  });
+});

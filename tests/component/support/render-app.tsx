@@ -4,12 +4,16 @@ import { emitUser, makeUser, type TestUser } from "./firebase-harness";
 
 // Every screen is reached through the real application shell and the real authentication state
 // machine, so the tests exercise the same transitions the browser does.
-export async function renderApp(): Promise<RenderResult> {
+export async function renderApp(initialPath = "/"): Promise<RenderResult> {
   // The authentication surface is behind a dynamic import. Resolving it here puts it in the module
   // cache before the first render, so Suspense never has to race an async query timeout while the
   // suite runs in parallel. The import happens inside the mocked module graph, so the component
   // under test is still the mocked one.
   await import("../../../src/client/components/auth/AuthSurface");
+
+  // jsdom keeps the URL of the previous test, so every render starts from an explicit path.
+  window.history.replaceState(null, "", initialPath);
+  window.sessionStorage.removeItem("cognaxis.postAuthPath");
 
   const result = render(<App />);
   await act(async () => {

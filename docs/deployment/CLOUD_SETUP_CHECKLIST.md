@@ -123,3 +123,53 @@ domains and set the exact production `APP_ORIGIN`, then verify with synthetic ac
 - Verify Secret Manager access works through runtime identity without a user-managed key.
 - Verify deleting a session removes its messages and derived summary.
 - Record the tested commit, environment, date, sanitized result, and residual risks.
+
+## 7. Extended features (signals, insights, Maps, organizations, administration)
+
+### 7.1 Firestore indexes
+
+- [ ] Deploy the versioned composite indexes together with the rules:
+      `firebase deploy --only firestore:rules,firestore:indexes --project <project>`.
+- [ ] Confirm in the console that the personalInsights and platformUsers composites are built
+      before exercising the insights list or the admin user directory in production.
+
+### 7.2 Google Maps browser key
+
+- [ ] Create one dedicated Maps JavaScript API browser key; never reuse the Firebase or any
+      server key.
+- [ ] Restrict websites to `http://localhost:3000/*` and the exact production origin.
+- [ ] Restrict APIs to the Maps JavaScript API only — explicitly not Generative Language,
+      Secret Manager, or any privileged Cloud API.
+- [ ] Set quota limits and a budget alert scoped to this key.
+- [ ] Provide it at build time as `VITE_GOOGLE_MAPS_API_KEY` (Docker build argument). If omitted,
+      the application intentionally degrades to accessible list views — record that state rather
+      than describing the interactive map as delivered.
+
+### 7.3 Feature flags
+
+- [ ] Decide the launch state of `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`,
+      and `FEATURE_ADMIN` (all default to enabled) and set any overrides in the Cloud Run
+      environment. Disabled modules answer with generic 404s and hide their navigation.
+
+### 7.4 Super-admin bootstrap
+
+- [ ] Have the intended administrator sign in to the deployed application once.
+- [ ] Run `GOOGLE_CLOUD_PROJECT=<project> npx tsx scripts/admin/bootstrap-super-admin.ts <uid>`
+      with owner credentials. This is the only supported way to create the first super admin and
+      it initializes `platformControl/access` atomically.
+- [ ] Verify the Admin navigation appears for that account and that a second ordinary synthetic
+      account still receives 403 on `/api/v1/admin/*`.
+
+### 7.5 Extended release verification (synthetic accounts only)
+
+- [ ] A check-in with an approximate location stores rounded coordinates and appears on the
+      private map; deleting the reflection removes the pin.
+- [ ] A generated daily recap is grounded in that day's records; a repeated request returns the
+      stored result; the eleventh generation in fifteen minutes is rate-limited.
+- [ ] Org A's invited viewer can read but cannot write or trigger Gemini; an Org B account
+      cannot reach Org A by any identifier; a revoked invitation link no longer works.
+- [ ] The super admin sees counts, directory metadata, and audit events but no journal text,
+      session identifier, coordinate, or wellbeing value (canary review of responses and logs).
+- [ ] Suspending a synthetic user blocks every API without deleting data; restoring re-enables.
+- [ ] Suspending an organization blocks its workspace while personal journals stay usable.
+- [ ] The container serves on the injected `PORT` and `/api/health` passes on Cloud Run.

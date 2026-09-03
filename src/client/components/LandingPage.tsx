@@ -300,6 +300,20 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
               Cognaxis
             </span>
           </div>
+          <nav aria-label="Legal" className="flex items-center gap-6">
+            <a
+              href="/privacy"
+              className="text-on-surface-variant hover:text-on-surface text-sm font-medium transition-colors"
+            >
+              Privacy
+            </a>
+            <a
+              href="/terms"
+              className="text-on-surface-variant hover:text-on-surface text-sm font-medium transition-colors"
+            >
+              Terms
+            </a>
+          </nav>
           <p className="text-on-surface-variant text-sm">
             &copy; {new Date().getFullYear()} Cognaxis. Personal intelligence.
           </p>

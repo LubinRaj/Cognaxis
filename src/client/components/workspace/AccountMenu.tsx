@@ -129,8 +129,9 @@ export function AccountMenu({ user, onSignOut, signingOut }: AccountMenuProps) {
               <MaterialIcon name="dns" size={20} />
             </span>
             <span>
-              Gemini runs on the server. Its credentials are never sent to your browser, and your
-              reflections are not used to train it.
+              Gemini runs on the server and its credentials are never sent to your browser. Your
+              reflections go to Google only to generate a response, under API terms stating that
+              paid-tier content is not used to train Google&apos;s models.
             </span>
           </li>
           <li className="flex gap-3">

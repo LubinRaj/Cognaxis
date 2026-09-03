@@ -27,6 +27,7 @@ export type PersistedMessageExchange = {
 export interface JournalRepository {
   createSession(uid: string, title: string): Promise<JournalSession>;
   listSessions(uid: string, limit: number): Promise<JournalSession[]>;
+  listSessionsCreatedSince(uid: string, sinceIso: string, limit: number): Promise<JournalSession[]>;
   getSession(uid: string, sessionId: string): Promise<JournalSession | null>;
   listMessages(uid: string, sessionId: string, limit: number): Promise<JournalMessage[]>;
   getMessageExchange(

@@ -76,13 +76,14 @@ describe("reflection history pane", () => {
       "Workspace Boundary",
       "UID",
       "MVP",
-      "Org",
       "permission-scoped",
       "Derived Personal Memory",
       "Scope",
     ]) {
       expect(text).not.toContain(phrase);
     }
+    // "Organizations" is a real product destination; only the bare abbreviation is jargon.
+    expect(text).not.toMatch(/\bOrg\b/);
   });
 
   it("filters the loaded reflections by title only", async () => {

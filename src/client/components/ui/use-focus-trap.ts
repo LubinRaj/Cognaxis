@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -21,6 +21,14 @@ export function useFocusTrap(
   active: boolean,
   onEscape?: () => void,
 ) {
+  // The escape handler is read through a ref so a parent re-render (which usually recreates the
+  // callback) never re-runs the trap effect. Re-running it would move focus back to the first
+  // control while the user is typing.
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
+
   useEffect(() => {
     if (!active) return;
 
@@ -34,7 +42,7 @@ export function useFocusTrap(
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onEscape?.();
+        onEscapeRef.current?.();
         return;
       }
       if (event.key !== "Tab" || !container) return;
@@ -63,7 +71,7 @@ export function useFocusTrap(
       document.removeEventListener("keydown", handleKeyDown, true);
       previouslyFocused?.focus?.();
     };
-  }, [active, containerRef, onEscape]);
+  }, [active, containerRef]);
 }
 
 /** Prevents the page behind a modal surface from scrolling while it is open. */

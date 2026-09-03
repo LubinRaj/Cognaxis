@@ -2,14 +2,10 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { JournalMessage, SummaryOutput } from "../../src/shared/schemas.js";
-import { createApp } from "../../src/server/app.js";
-import type { AppConfig } from "../../src/server/config/env.js";
-import { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
+import type { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
 import type { ConversationModel } from "../../src/server/services/conversation-model.js";
-import { JournalService } from "../../src/server/services/journal-service.js";
-import type { SignalService } from "../../src/server/services/signal-service.js";
-import type { InsightService } from "../../src/server/services/insight-service.js";
 import type { AuthenticatedPrincipal, TokenVerifier } from "../../src/server/types.js";
+import { createTestApp } from "../helpers/test-app.js";
 
 const nowSeconds = Math.floor(Date.now() / 1_000);
 const errorResponseSchema = z.object({
@@ -80,30 +76,16 @@ class RecordingModel implements ConversationModel {
   }
 }
 
-const config: AppConfig = {
-  NODE_ENV: "test",
-  PORT: 3000,
-  APP_ORIGIN: "https://cognaxis.test",
-  GEMINI_MODEL: "test-model",
-};
-
 describe("verified email authorization boundary", () => {
   let repository: InMemoryJournalRepository;
   let verifier: MatrixVerifier;
   let model: RecordingModel;
-  let app: Awaited<ReturnType<typeof createApp>>;
+  let app: Awaited<ReturnType<typeof createTestApp>>["app"];
 
   beforeEach(async () => {
-    repository = new InMemoryJournalRepository();
     verifier = new MatrixVerifier();
     model = new RecordingModel();
-    app = await createApp({
-      config,
-      verifier,
-      journalService: new JournalService(repository, model),
-      signalService: {} as unknown as SignalService,
-      insightService: {} as unknown as InsightService,
-    });
+    ({ app, repository } = await createTestApp({ verifier, model }));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 

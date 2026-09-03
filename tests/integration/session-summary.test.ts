@@ -2,17 +2,9 @@ import request from "supertest";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { JournalMessage, SummaryOutput } from "../../src/shared/schemas.js";
-import { createApp } from "../../src/server/app.js";
-import type { AppConfig } from "../../src/server/config/env.js";
-import { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
-import type { ConversationModel } from "../../src/server/services/conversation-model.js";
-import { JournalService } from "../../src/server/services/journal-service.js";
-import type { SignalService } from "../../src/server/services/signal-service.js";
-import type { InsightService } from "../../src/server/services/insight-service.js";
-import type { AuthenticatedPrincipal, TokenVerifier } from "../../src/server/types.js";
-
-const nowSeconds = Math.floor(Date.now() / 1_000);
+import type { SummaryOutput } from "../../src/shared/schemas.js";
+import type { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
+import { TestModel, createTestApp, spyOnServerLogs } from "../helpers/test-app.js";
 
 const sessionDetailSchema = z.object({
   session: z.object({
@@ -34,27 +26,8 @@ const sessionDetailSchema = z.object({
   }),
 });
 
-class TestVerifier implements TokenVerifier {
-  async verify(token: string): Promise<AuthenticatedPrincipal> {
-    if (!token.startsWith("token-")) throw new Error("invalid token");
-    const uid = token.slice("token-".length);
-    return {
-      uid,
-      email: `${uid}@example.test`,
-      emailVerified: true,
-      signInProvider: "password",
-      issuedAt: nowSeconds,
-      authTime: nowSeconds,
-    };
-  }
-}
-
-class TestModel implements ConversationModel {
-  async reply(_messages: JournalMessage[]): Promise<string> {
-    return "A grounded response for the authenticated journal.";
-  }
-
-  async summarize(): Promise<SummaryOutput> {
+class TwoThemeModel extends TestModel {
+  override async summarize(): Promise<SummaryOutput> {
     return {
       title: "Reflection summary",
       summary: "A synthetic summary containing no private fixture data.",
@@ -64,27 +37,13 @@ class TestModel implements ConversationModel {
   }
 }
 
-const config: AppConfig = {
-  NODE_ENV: "test",
-  PORT: 3000,
-  APP_ORIGIN: "https://cognaxis.test",
-  GEMINI_MODEL: "test-model",
-};
-
 describe("session detail summary contract", () => {
   let repository: InMemoryJournalRepository;
-  let app: Awaited<ReturnType<typeof createApp>>;
+  let app: Awaited<ReturnType<typeof createTestApp>>["app"];
 
   beforeEach(async () => {
-    repository = new InMemoryJournalRepository();
-    app = await createApp({
-      config,
-      verifier: new TestVerifier(),
-      journalService: new JournalService(repository, new TestModel()),
-      signalService: {} as unknown as SignalService,
-      insightService: {} as unknown as InsightService,
-    });
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    ({ app, repository } = await createTestApp({ model: new TwoThemeModel() }));
+    spyOnServerLogs();
   });
 
   afterEach(() => {
@@ -205,8 +164,9 @@ describe("session detail summary contract", () => {
   it("does not let an unverified account read a summary", async () => {
     const sessionId = await createSessionFor("user_alpha");
 
-    const unverifiedApp = await createApp({
-      config,
+    const nowSeconds = Math.floor(Date.now() / 1_000);
+    const { app: unverifiedApp } = await createTestApp({
+      repository,
       verifier: {
         verify: async () => ({
           uid: "user_alpha",
@@ -217,9 +177,6 @@ describe("session detail summary contract", () => {
           authTime: nowSeconds,
         }),
       },
-      journalService: new JournalService(repository, new TestModel()),
-      signalService: {} as unknown as SignalService,
-      insightService: {} as unknown as InsightService,
     });
 
     const response = await request(unverifiedApp)

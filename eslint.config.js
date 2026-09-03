@@ -4,7 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "dist-server/**", "coverage/**", "node_modules/**", "vitest-mock.ts"] },
+  { ignores: ["dist/**", "dist-server/**", "coverage/**", "node_modules/**"] },
   { ...js.configs.recommended, files: ["**/*.js"] },
   ...tseslint.configs.recommendedTypeChecked.map((configuration) => ({
     ...configuration,
@@ -39,11 +39,16 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/server/data/in-memory-journal-repository.ts", "tests/**/*.ts"],
+    files: ["src/server/data/in-memory-*.ts", "tests/**/*.ts"],
     rules: { "@typescript-eslint/require-await": "off" },
   },
   {
     files: ["src/server/types.ts"],
     rules: { "@typescript-eslint/no-namespace": "off" },
+  },
+  {
+    // Operational scripts run standalone with tsx and are not part of any build project.
+    files: ["scripts/**/*.ts"],
+    ...tseslint.configs.disableTypeChecked,
   },
 );

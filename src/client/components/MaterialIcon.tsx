@@ -53,7 +53,14 @@ export type MaterialIconName =
   | "place"
   | "auto_graph"
   | "map"
-  | "groups";
+  | "groups"
+  | "admin_panel_settings"
+  | "mood"
+  | "bolt"
+  | "domain"
+  | "person_add"
+  | "calendar_today"
+  | "history";
 
 interface MaterialIconProps {
   name: MaterialIconName;
@@ -740,6 +747,175 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="M22 7h-9v2h9V7zm0 8h-9v2h9v-2zM5.54 11 2 7.46l1.41-1.41 2.12 2.12 4.24-4.24 1.42 1.41L5.54 11zm0 8L2 15.46l1.41-1.41 2.12 2.12 4.24-4.24 1.42 1.41L5.54 19z" />
+        </svg>
+      );
+
+    case "auto_graph":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M14.06 9.94 12 9l2.06-.94L15 6l.94 2.06L18 9l-2.06.94L15 12l-.94-2.06zM4 14l.94-2.06L7 11l-2.06-.94L4 8l-.94 2.06L1 11l2.06.94L4 14zm4.5-5 1.09-2.41L12 5.5 9.59 4.41 8.5 2 7.41 4.41 5 5.5l2.41 1.09L8.5 9zm-4 11.5 6-6.01 4 4L23 8.93l-1.41-1.41-7.09 7.97-4-4L3 19l1.5 1.5z" />
+        </svg>
+      );
+
+    case "map":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z" />
+        </svg>
+      );
+
+    case "groups":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+        </svg>
+      );
+
+    case "place":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+        </svg>
+      );
+
+    case "my_location":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z" />
+        </svg>
+      );
+
+    case "admin_panel_settings":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M17 11c.34 0 .67.04 1 .09V6.27L10.5 3 3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55-.69-.98-1.1-2.17-1.1-3.45 0-3.31 2.69-6 6-6z" />
+          <path d="M17 13c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 1.38c.62 0 1.12.51 1.12 1.12s-.5 1.12-1.12 1.12-1.12-.51-1.12-1.12.5-1.12 1.12-1.12zm0 5.37c-.93 0-1.74-.46-2.24-1.17.05-.72 1.51-1.08 2.24-1.08s2.19.36 2.24 1.08c-.5.71-1.31 1.17-2.24 1.17z" />
+        </svg>
+      );
+
+    case "mood":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z" />
+        </svg>
+      );
+
+    case "bolt":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z" />
+        </svg>
+      );
+
+    case "domain":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z" />
+        </svg>
+      );
+
+    case "person_add":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+        </svg>
+      );
+
+    case "calendar_today":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13z" />
+        </svg>
+      );
+
+    case "history":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z" />
         </svg>
       );
 

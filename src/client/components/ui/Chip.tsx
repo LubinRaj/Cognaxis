@@ -16,6 +16,8 @@ export type ChipProps = {
   icon?: MaterialIconName;
   /** Renders an activatable assist chip instead of a static label. */
   onClick?: () => void;
+  /** With onClick, renders a toggleable filter chip that announces its pressed state. */
+  selected?: boolean;
   disabled?: boolean;
   className?: string;
 };
@@ -25,10 +27,13 @@ export function Chip({
   tone = "neutral",
   icon,
   onClick,
+  selected,
   disabled = false,
   className = "",
 }: ChipProps) {
-  const shared = `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${toneClasses[tone]} ${className}`;
+  const toneClass =
+    selected === true ? "bg-secondary-container text-on-secondary-container" : toneClasses[tone];
+  const shared = `inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${toneClass} ${className}`;
 
   const content = (
     <>
@@ -50,6 +55,7 @@ export function Chip({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={selected === undefined ? undefined : selected}
       className={`${shared} focus-visible:outline-focus-ring min-h-9 transition-colors duration-(--duration-feedback) hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:brightness-110`}
     >
       {content}

@@ -10,10 +10,14 @@ class RecordingModel implements ConversationModel {
   replyCalls = 0;
   failReply = false;
   failSummary = false;
+  onReplyStart: (() => void) | null = null;
+  holdReply: Promise<void> | null = null;
 
   async reply(messages: JournalMessage[]): Promise<string> {
     this.replyCalls += 1;
     this.replyContexts.push(structuredClone(messages));
+    this.onReplyStart?.();
+    if (this.holdReply) await this.holdReply;
     if (this.failReply) throw new Error("MODEL_FAILED");
     return `reply-${this.replyCalls}`;
   }
@@ -69,14 +73,63 @@ describe("journal message consistency", () => {
     expect((await repository.getSession("user_alpha", session.id))?.messageCount).toBe(2);
   });
 
-  it("rejects reuse of a request id for different content", async () => {
-    const { service, session } = await fixture();
+  it("rejects reuse of a request id for different content without extra writes or model calls", async () => {
+    const { repository, model, service, session } = await fixture();
     const requestId = randomUUID();
     await service.addMessage("user_alpha", session.id, requestId, "Original thought.");
 
     await expect(
       service.addMessage("user_alpha", session.id, requestId, "Different thought."),
     ).rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
+
+    // The conflict changed nothing: same stored exchange, no second model call, no extra
+    // messages.
+    expect(model.replyCalls).toBe(1);
+    const messages = await repository.listMessages("user_alpha", session.id, 120);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content).toBe("Original thought.");
+    expect((await repository.getSession("user_alpha", session.id))?.messageCount).toBe(2);
+  });
+
+  it("stores exactly one exchange when duplicate requests race through the model together", async () => {
+    const { repository, model, service, session } = await fixture();
+    const requestId = randomUUID();
+
+    // Both duplicates pass the replay pre-check and reach the model before either commits; the
+    // transactional write must still collapse them to a single stored exchange.
+    let releaseReplies = () => undefined as void;
+    model.holdReply = new Promise<void>((resolve) => {
+      releaseReplies = resolve;
+    });
+    let started = 0;
+    const bothStarted = new Promise<void>((resolve) => {
+      model.onReplyStart = () => {
+        started += 1;
+        if (started === 2) resolve();
+      };
+    });
+
+    const attempts = [
+      service.addMessage("user_alpha", session.id, requestId, "Raced thought."),
+      service.addMessage("user_alpha", session.id, requestId, "Raced thought."),
+    ];
+    await bothStarted;
+    releaseReplies();
+    const results = await Promise.allSettled(attempts);
+
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<Awaited<(typeof attempts)[number]>> =>
+        result.status === "fulfilled",
+    );
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    const exchangeIds = new Set(
+      fulfilled.map((result) => `${result.value.userMessage.id}:${result.value.assistantMessage.id}`),
+    );
+    expect(exchangeIds.size).toBe(1);
+
+    const messages = await repository.listMessages("user_alpha", session.id, 120);
+    expect(messages).toHaveLength(2);
+    expect((await repository.getSession("user_alpha", session.id))?.messageCount).toBe(2);
   });
 
   it("keeps a completed exchange successful when automatic summarization fails", async () => {

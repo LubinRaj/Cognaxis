@@ -266,6 +266,135 @@ describe("organization API", () => {
       .expect(404);
   });
 
+  it("keeps personal and organization model contexts fully separate for one user", async () => {
+    // The same account writes in both surfaces; each model call must see only its own side.
+    const personalCreated = await request(context.app)
+      .post("/api/v1/sessions")
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Personal" })
+      .expect(201);
+    const personalId = z
+      .object({ session: z.object({ id: z.string() }) })
+      .parse(JSON.parse(personalCreated.text)).session.id;
+    await request(context.app)
+      .post(`/api/v1/sessions/${personalId}/messages`)
+      .set("authorization", auth("user_owner"))
+      .send({ requestId: randomUUID(), content: "Personal-only reflection content." })
+      .expect(201);
+    const personalContext = JSON.stringify(model.lastMessages);
+    expect(personalContext).toContain("Personal-only reflection content.");
+    expect(personalContext).not.toContain("Organization-only");
+
+    const orgId = await createOrganization(context, "user_owner");
+    const orgSession = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .send({})
+      .expect(201);
+    const orgSessionId = z
+      .object({ session: z.object({ id: z.string() }) })
+      .parse(JSON.parse(orgSession.text)).session.id;
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${orgSessionId}/messages`)
+      .set("authorization", auth("user_owner"))
+      .send({ requestId: randomUUID(), content: "Organization-only shared content." })
+      .expect(201);
+    const organizationContext = JSON.stringify(model.lastMessages);
+    expect(organizationContext).toContain("Organization-only shared content.");
+    expect(organizationContext).not.toContain("Personal-only");
+
+    // A later personal exchange still carries only personal history.
+    await request(context.app)
+      .post(`/api/v1/sessions/${personalId}/messages`)
+      .set("authorization", auth("user_owner"))
+      .send({ requestId: randomUUID(), content: "A personal follow-up." })
+      .expect(201);
+    const secondPersonalContext = JSON.stringify(model.lastMessages);
+    expect(secondPersonalContext).toContain("Personal-only reflection content.");
+    expect(secondPersonalContext).not.toContain("Organization-only");
+  });
+
+  it("hides an organization from members of a different organization", async () => {
+    const confidentialName = "Alpha Confidential Org";
+    const created = await request(context.app)
+      .post("/api/v1/organizations")
+      .set("authorization", auth("user_owner"))
+      .send({ name: confidentialName, description: null })
+      .expect(201);
+    const orgA = detailSchema.parse(JSON.parse(created.text)).organization.id;
+
+    // The probing user is a legitimate member — of a different organization.
+    const orgB = await createOrganization(context, "user_other_owner");
+    const probeInvite = await invite(context, "user_other_owner", orgB, "member");
+    await join(context, "user_probe", orgB, probeInvite);
+
+    const probes = [
+      request(context.app).get(`/api/v1/organizations/${orgA}`),
+      request(context.app).get(`/api/v1/organizations/${orgA}/members`),
+      request(context.app).get(`/api/v1/organizations/${orgA}/invites`),
+      request(context.app).get(`/api/v1/organizations/${orgA}/audit-events`),
+      request(context.app).get(`/api/v1/organizations/${orgA}/sessions`),
+      request(context.app).post(`/api/v1/organizations/${orgA}/sessions`).send({}),
+      request(context.app).post(`/api/v1/organizations/${orgA}/invites`).send({ role: "member" }),
+    ];
+    for (const probe of probes) {
+      const response = await probe.set("authorization", auth("user_probe"));
+      expect([403, 404], `status for ${response.request.url}: ${response.status}`).toContain(
+        response.status,
+      );
+      expect(response.text).not.toContain(confidentialName);
+    }
+  });
+
+  it("rejects self-service role or status fields outright", async () => {
+    await request(context.app)
+      .post("/api/v1/organizations")
+      .set("authorization", auth("user_escalator"))
+      .send({ name: "Escalation Org", role: "owner" })
+      .expect(400);
+
+    const orgId = await createOrganization(context, "user_owner");
+    const created = await invite(context, "user_owner", orgId, "viewer");
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/invites/${created.inviteId}/accept`)
+      .set("authorization", auth("user_escalator"))
+      .send({ secret: created.secret, role: "admin" })
+      .expect(400);
+  });
+
+  it("rate limits organization model routes independently of reads", async () => {
+    const orgId = await createOrganization(context, "user_owner");
+    const sessionResponse = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .send({})
+      .expect(201);
+    const sessionId = z
+      .object({ session: z.object({ id: z.string() }) })
+      .parse(JSON.parse(sessionResponse.text)).session.id;
+
+    // Twelve model-route requests consume the per-user budget (each fails harmlessly for lack of
+    // conversation content); the thirteenth is refused before reaching the handler.
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await request(context.app)
+        .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/summarize`)
+        .set("authorization", auth("user_owner"))
+        .send({})
+        .expect(409);
+    }
+    const limited = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/summarize`)
+      .set("authorization", auth("user_owner"))
+      .send({})
+      .expect(429);
+    expect(JSON.parse(limited.text)).toMatchObject({ error: { code: "RATE_LIMITED" } });
+
+    await request(context.app)
+      .get(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+  });
+
   it("rate limits invitation activity so secrets cannot be probed quickly", async () => {
     const orgId = "org_0123456789abcdef";
     const inviteId = "invite_0123456789ab";

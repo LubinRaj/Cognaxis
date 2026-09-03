@@ -77,6 +77,66 @@ describe("journal API security boundary", () => {
     expect(sessionsResponseSchema.parse(responseBody(bravoList)).sessions).toHaveLength(0);
   });
 
+  it("blocks writing, summarizing, and deleting another user's session behind the same 404", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ title: "Alpha reflection" })
+      .expect(201);
+    const sessionId = responseSessionId(created);
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/messages`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ requestId: randomUUID(), content: "Alpha's private thought." })
+      .expect(201);
+    const modelCallsBefore = model.calls;
+
+    const foreignAttempts = [
+      request(app)
+        .post(`/api/v1/sessions/${sessionId}/messages`)
+        .send({ requestId: randomUUID(), content: "Hijacked message." }),
+      request(app).post(`/api/v1/sessions/${sessionId}/summarize`).send({}),
+      request(app).delete(`/api/v1/sessions/${sessionId}`),
+    ];
+    for (const attempt of foreignAttempts) {
+      const response = await attempt.set("authorization", "Bearer token-user_bravo");
+      expect(response.status, `body: ${response.text}`).toBe(404);
+    }
+
+    // Nothing about the owner's session changed and no model call ran for the intruder.
+    expect(model.calls).toBe(modelCallsBefore);
+    expect(await repository.listMessages("user_alpha", sessionId, 120)).toHaveLength(2);
+    expect(await repository.getSession("user_alpha", sessionId)).not.toBeNull();
+  });
+
+  it("keeps secret-bearing failure detail out of logs and error responses", async () => {
+    const secretValue = "synthetic-upstream-credential-93cd41";
+    const failingModel = new TestModel();
+    failingModel.reply = () => Promise.reject(new Error(`upstream rejected key ${secretValue}`));
+    const local = await createTestApp({ model: failingModel });
+
+    const created = await request(local.app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({})
+      .expect(201);
+    const response = await request(local.app)
+      .post(`/api/v1/sessions/${responseSessionId(created)}/messages`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ requestId: randomUUID(), content: "A thought." });
+
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(response.text).not.toContain(secretValue);
+
+    const loggedLines = vi
+      .mocked(console.error)
+      .mock.calls.map((line) => JSON.stringify(line));
+    expect(loggedLines.length).toBeGreaterThan(0);
+    for (const line of loggedLines) {
+      expect(line).not.toContain(secretValue);
+    }
+  });
+
   it("keeps prompt-injection text inside the authenticated user's context", async () => {
     const created = await request(app)
       .post("/api/v1/sessions")

@@ -90,273 +90,78 @@ Untrusted browser
 
 The browser never receives a Gemini credential, Admin SDK privilege, service-account key, or Secret Manager access. Confidential Firestore client access is denied by `firestore.rules`; the backend remains responsible for authorization because Admin SDK operations bypass those rules.
 
-## Local development
+## Development, preview, and publishing
 
-Requirements:
+The supported project workflow is intentionally simple:
 
-- Node.js 22 or newer;
-- a Firebase project configuration for interactive sign-in;
-- Application Default Credentials or Firebase emulators for backend integration;
-- a non-production Gemini credential only when exercising real model calls locally.
+1. Develop and review source code locally.
+2. Commit and push the reviewed changes to GitHub.
+3. Sync the latest GitHub commit into Google AI Studio.
+4. Exercise the application in AI Studio Preview.
+5. Publish from Google AI Studio; AI Studio builds and deploys the Cloud Run service.
+6. Complete the one-time production configuration below, then test the published URL.
 
-Install dependencies and create local configuration:
+Local application startup and local container builds are not part of the normal release path.
+There is no CI/CD pipeline: automated tests are development-only tooling run locally when
+useful, and the production smoke suite drives the published Cloud Run URL from a local
+Playwright runner on demand.
 
-```bash
-npm ci
-cp .env.example .env.local
-```
+### Production configuration
 
-Fill only the required local values. Never place service-account JSON, private keys, or production secrets in the repository. Start the frontend and API:
+Google AI Studio must retain the public Firebase web configuration used by the preview and build:
 
-```bash
-npm run dev
-```
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+- optional `VITE_GOOGLE_MAPS_API_KEY`
 
-The browser and API run together at `http://localhost:3000`; in development, Express mounts Vite
-as middleware so the frontend and `/api` remain on the same local origin.
+The complete production checklist — which value is set in AI Studio versus on the Cloud Run
+service — is kept in [`.env.production.example`](.env.production.example).
 
-Without Firebase configuration, Cognaxis intentionally displays a configuration-required screen instead of a fake authenticated demo.
+These browser values are identifiers, not authorization secrets. Restrict the Firebase key to the
+required Firebase APIs and restrict the Maps key to the Maps JavaScript API and approved website
+origins. Never provide the Gemini key, a service-account key, or an Admin SDK credential to the
+browser build.
 
-## Cloud Run deployment
+After the first AI Studio publication, open its Cloud Run service through **Advanced settings** and:
 
-These instructions deploy the reviewed checkout as one public Cloud Run service: Express serves the
-compiled React application and the authenticated `/api/v1` routes. Run them from the repository root
-using the Google Cloud CLI and Docker. Replace only the values marked with angle brackets.
+1. bind the dedicated keyless runtime identity
+   `cognaxis-runtime@ideathon-journal.iam.gserviceaccount.com`;
+2. set `APP_ORIGIN` to the exact published HTTPS origin;
+3. set `GOOGLE_CLOUD_PROJECT=ideathon-journal`;
+4. set `GEMINI_MODEL=gemini-3.7-flash`;
+5. set `GEMINI_API_KEY_SECRET` to a pinned numeric Secret Manager version;
+6. set `FIREBASE_AUTH_DOMAIN` to the exact Firebase authentication domain;
+7. decide the `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`, and
+   `FEATURE_ADMIN` launch flags;
+8. apply the required label `dev-tutorial=cloud-run-ai-challenge`.
 
-### 1. Select the project and deployment values
+The runtime identity receives `roles/datastore.user` on the project and
+`roles/secretmanager.secretAccessor` only on the Gemini secret. It must not receive Owner or
+Editor, and no service-account JSON key is created or uploaded.
 
-```bash
-export PROJECT_ID="ideathon-journal"
-export REGION="asia-south1"
-export SERVICE="cognaxis"
-export RUNTIME_SA_NAME="cognaxis-runtime"
-export RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-export SECRET_NAME="cognaxis-gemini-api-key"
-export REPOSITORY="cognaxis"
-export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/cognaxis:$(git rev-parse --short HEAD)"
+In Firebase Console:
 
-gcloud auth login
-gcloud config set project "$PROJECT_ID"
-export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-```
+1. confirm Google and Email/Password providers, the 8–128 password policy, and enumeration
+   protection;
+2. create Firestore in Native mode if it does not already exist;
+3. publish the repository's deny-by-default `firestore.rules`;
+4. create the composite indexes described by `firestore.indexes.json`;
+5. add the published Cloud Run hostname to Authentication authorized domains;
+6. optionally point authentication email templates to
+   `https://<published-origin>/auth/action` after that route has been tested.
 
-Export the public Firebase web-app identifiers from Firebase Console **Project settings > Your
-apps > Web app > SDK setup and configuration**:
+The first super administrator is created only by the reviewed offline bootstrap script after that
+person has signed in once. There is intentionally no public API for creating the first administrator.
 
-```bash
-export VITE_FIREBASE_API_KEY="<firebase-web-api-key>"
-export VITE_FIREBASE_AUTH_DOMAIN="<project>.firebaseapp.com"
-export VITE_FIREBASE_PROJECT_ID="$PROJECT_ID"
-export VITE_FIREBASE_APP_ID="<firebase-web-app-id>"
-```
+### Production verification
 
-Firebase web configuration is visible in every browser bundle by design; it identifies the Firebase
-app but does not authorize database access. Restrict that key to the required Firebase APIs, never
-allow the Generative Language API on it, keep `firestore.rules` deny-by-default, and use a separate
-server-only Gemini key.
-
-For the private map, create one additional dedicated **Maps JavaScript browser key** and export it:
-
-```bash
-export VITE_GOOGLE_MAPS_API_KEY="<restricted-maps-browser-key>"
-```
-
-This key is compiled into the browser bundle by design and is a public identifier, not a secret.
-Before deploying, in Google Cloud **APIs & Services > Credentials**:
-
-1. add website (HTTP referrer) restrictions for `http://localhost:3000/*` and the exact production
-   Cloud Run origin;
-2. restrict the key's APIs to the **Maps JavaScript API only** — never Gemini/Generative Language,
-   Secret Manager, or any privileged Cloud API;
-3. set quotas and a budget alert for the key;
-4. never reuse it for server-side web-service calls; a future server geocoding need requires a
-   different key in Secret Manager.
-
-If the variable is absent at build time, Cognaxis still works: the map page and location previews
-degrade to accessible list and coordinate views without contacting any third party.
-
-### 2. Enable services and prepare the runtime identity
-
-Enable the APIs and create the Artifact Registry repository and dedicated service account once. If a
-resource already exists, verify it instead of recreating it.
-
-```bash
-gcloud services enable \
-  artifactregistry.googleapis.com \
-  firestore.googleapis.com \
-  run.googleapis.com \
-  secretmanager.googleapis.com
-
-gcloud artifacts repositories create "$REPOSITORY" \
-  --repository-format=docker \
-  --location="$REGION" \
-  --description="Cognaxis release images"
-
-gcloud iam service-accounts create "$RUNTIME_SA_NAME" \
-  --display-name="Cognaxis Runtime"
-
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/datastore.user"
-
-gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/secretmanager.secretAccessor"
-```
-
-Do not grant this runtime identity Owner or Editor and do not download a service-account key. Cloud
-Run supplies Application Default Credentials to the selected identity.
-
-Create the Gemini secret only if it does not exist, then add the key without placing it in a command,
-file, screenshot, or shell history. Paste the value when prompted and finish input with `Ctrl-D`:
-
-```bash
-gcloud secrets create "$SECRET_NAME" --replication-policy=automatic
-gcloud secrets versions add "$SECRET_NAME" --data-file=-
-```
-
-Select the newest enabled numeric version without reading its value:
-
-```bash
-export SECRET_VERSION="$(gcloud secrets versions list "$SECRET_NAME" \
-  --filter='state=ENABLED' \
-  --sort-by='~createTime' \
-  --limit=1 \
-  --format='value(name)')"
-test -n "$SECRET_VERSION"
-```
-
-Create Firestore in Native mode in `asia-south1` if it has not already been created. Then deploy the
-versioned deny-by-default client rules and the composite indexes required by the extended queries:
-
-```bash
-firebase login
-firebase deploy --only firestore:rules,firestore:indexes --project "$PROJECT_ID"
-```
-
-### 3. Build and push the reviewed image
-
-Run the repository verification suite before producing the image:
-
-```bash
-npm ci
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run security:check
-```
-
-Build the browser with the public Firebase configuration and push the resulting image. Never pass the
-Gemini key or a service-account credential as a Docker build argument.
-
-```bash
-gcloud auth configure-docker "${REGION}-docker.pkg.dev"
-
-docker build --platform linux/amd64 \
-  --build-arg "VITE_FIREBASE_API_KEY=${VITE_FIREBASE_API_KEY}" \
-  --build-arg "VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}" \
-  --build-arg "VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID}" \
-  --build-arg "VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}" \
-  --build-arg "VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}" \
-  --tag "$IMAGE" \
-  .
-
-docker push "$IMAGE"
-```
-
-### 4. Deploy with the mandatory challenge label
-
-The first deployment uses a temporary denied origin only to obtain the generated Cloud Run URL. The
-second command immediately replaces it with the exact production origin. The required ideathon label
-must remain on every deployment:
-
-```bash
-gcloud run deploy "$SERVICE" \
-  --image="$IMAGE" \
-  --region="$REGION" \
-  --service-account="$RUNTIME_SA" \
-  --allow-unauthenticated \
-  --ingress=all \
-  --port=8080 \
-  --cpu=1 \
-  --memory=512Mi \
-  --concurrency=20 \
-  --timeout=60s \
-  --min-instances=0 \
-  --max-instances=3 \
-  --set-env-vars="APP_ORIGIN=https://pending.invalid,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GEMINI_MODEL=gemini-3.7-flash,GEMINI_API_KEY_SECRET=projects/${PROJECT_NUMBER}/secrets/${SECRET_NAME}/versions/${SECRET_VERSION},FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}" \
-  --labels="dev-tutorial=cloud-run-ai-challenge"
-
-export SERVICE_URL="$(gcloud run services describe "$SERVICE" \
-  --region="$REGION" \
-  --format='value(status.url)')"
-
-gcloud run services update "$SERVICE" \
-  --region="$REGION" \
-  --update-env-vars="APP_ORIGIN=${SERVICE_URL}" \
-  --update-labels="dev-tutorial=cloud-run-ai-challenge"
-```
-
-`GEMINI_API_KEY_SECRET` deliberately references a pinned numeric secret version. Never set
-`GEMINI_API_KEY_LOCAL` or `GOOGLE_APPLICATION_CREDENTIALS` on Cloud Run.
-
-### 5. Complete Firebase production configuration
-
-In Firebase Authentication:
-
-1. Add the hostname from `$SERVICE_URL` (without `https://`) to **Settings > Authorized domains**.
-2. Confirm Google and Email/Password providers are enabled.
-3. Keep the approved password policy at 8-128 characters and email-enumeration protection enabled.
-4. If Firebase permits custom email action URLs, set the handler to
-   `${SERVICE_URL}/auth/action`; otherwise retain Firebase's hosted handler and document that limitation.
-
-Restrict the Firebase browser key to the required Firebase APIs and approved web origins. App Check is
-a recommended post-MVP hardening layer; it does not replace Firebase Authentication, backend token
-verification, authorization, or Firestore rules.
-
-### 6. Bootstrap the first super admin
-
-There is deliberately no HTTP endpoint that can create a platform administrator. After the target
-person has signed in to the deployed application at least once, the project owner runs the
-reviewed offline script with credentials that may write to Firestore:
-
-```bash
-GOOGLE_CLOUD_PROJECT="$PROJECT_ID" npx tsx scripts/admin/bootstrap-super-admin.ts <uid>
-```
-
-In one transaction it promotes `platformUsers/<uid>` and initializes the
-`platformControl/access` active-super-admin counter. Until this has been run, every admin role or
-status mutation fails closed with `ACCESS_CONTROL_UNINITIALIZED`.
-
-Server-enforced feature flags (`FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`,
-`FEATURE_ADMIN`) default to enabled; set any of them to `false` in the Cloud Run environment to
-disable a module and hide its navigation without a code change.
-
-### 7. Verify the release
-
-```bash
-curl --fail --silent --show-error "${SERVICE_URL}/api/health"
-
-gcloud run services describe "$SERVICE" \
-  --region="$REGION" \
-  --format='yaml(metadata.labels,spec.template.spec.serviceAccountName,status.url)'
-```
-
-The health endpoint must return `{"status":"ok"}`. The service description must show:
-
-- `dev-tutorial: cloud-run-ai-challenge` under `metadata.labels`;
-- `cognaxis-runtime@ideathon-journal.iam.gserviceaccount.com` as the runtime identity;
-- the submitted public Cloud Run URL.
-
-Finally, use synthetic accounts to walk the deployed journeys: Google sign-in, email verification,
-password reset, one real Gemini conversation with persistence and deletion, a check-in with an
-approximate location, a generated daily recap, the private map, an organization with an invited
-viewer who can read but not write, an Org B account that cannot reach Org A, and the super admin
-seeing metadata and audit events but no private artifact. Confirm private API calls without a valid
-Firebase token return `401`, that a suspended synthetic account is blocked without data loss,
-inspect Cloud Run logs for redaction, and verify the browser bundle contains no Gemini key,
-service-account credential, or private content.
+Use dedicated synthetic accounts to verify Google and email sign-in, verification and password
+reset, one real Gemini conversation, persistence after refresh, deletion, check-ins and recaps,
+Maps or its documented fallback, organization role isolation, and the metadata-only super-admin
+surface. Confirm `/api/health` returns `{"status":"ok"}` and the Cloud Run service retains the
+required challenge label.
 
 ## Verification
 
@@ -369,7 +174,29 @@ npm run security:check
 npm audit
 ```
 
-`npm audit` currently reports a documented Moderate transitive advisory inherited through Firebase Admin's optional Cloud Storage dependency. Cognaxis does not invoke the affected UUID buffer APIs or Cloud Storage. It remains tracked in [the dependency risk register](docs/security/DEPENDENCY_RISK_REGISTER.md); no forced downgrade or incompatible override is permitted merely to make the report empty.
+The full local gate, including the Playwright browser suite, is one command (no Java, no running
+application, no other setup — everything starts itself):
+
+```bash
+npm run test:all
+```
+
+Optional extras: `npm run test:emulator` (Security Rules + real Firestore repository
+transactions; the only suite that needs a Java runtime) and `npm run test:prod-smoke`
+(explicitly invoked smoke of the published Cloud Run URL with a dedicated synthetic account).
+The architecture and safety guards are documented in
+[docs/testing/AUTOMATED_TESTING.md](docs/testing/AUTOMATED_TESTING.md).
+
+`npm audit --omit=dev` currently reports six Moderate production findings, all one documented
+transitive advisory inherited through Firebase Admin's optional Cloud Storage dependency;
+Cognaxis does not invoke the affected UUID buffer APIs or Cloud Storage. Full `npm audit`,
+including development tooling, currently reports thirteen Moderate findings — the additional
+seven are inherited through the pinned Firebase CLI used only for local emulator testing; it is
+a development dependency that is never imported by application code. There are no High or Critical
+findings. Both chains remain tracked in
+[the dependency risk register](docs/security/DEPENDENCY_RISK_REGISTER.md) (D-01, D-02); no
+forced downgrade (`npm audit fix --force`) or incompatible override is permitted merely to make
+the report empty.
 
 ## Security documents
 

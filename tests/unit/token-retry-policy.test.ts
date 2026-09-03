@@ -38,10 +38,33 @@ describe("bearer token refresh and retry policy", () => {
     }
   });
 
-  it("does not retry authorization, verification, or policy failures", () => {
+  it("retries once when the verification claim may have just changed server-side", () => {
+    // The verified-email middleware also rejects before any handler runs, and the claim really
+    // does flip the moment the user follows the mail link, so one refreshed replay is safe and
+    // avoids bouncing a freshly verified user back to the verify screen.
+    for (const method of methods) {
+      expect(
+        shouldForceTokenRefresh({
+          status: 403,
+          errorCode: "EMAIL_VERIFICATION_REQUIRED",
+          completedRefreshes: 0,
+          method,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      shouldForceTokenRefresh({
+        status: 403,
+        errorCode: "EMAIL_VERIFICATION_REQUIRED",
+        completedRefreshes: 1,
+        method: "GET",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not retry authorization or policy failures", () => {
     const nonRetryable = [
       { status: 401, errorCode: "RECENT_AUTH_REQUIRED" },
-      { status: 403, errorCode: "EMAIL_VERIFICATION_REQUIRED" },
       { status: 403, errorCode: "FORBIDDEN" },
       { status: 403, errorCode: "ORIGIN_DENIED" },
       { status: 429, errorCode: "RATE_LIMITED" },

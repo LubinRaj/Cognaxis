@@ -19,6 +19,7 @@ export default tseslint.config(
           "./tsconfig.server.json",
           "./tsconfig.test.json",
           "./tsconfig.test.client.json",
+          "./tsconfig.e2e.json",
         ],
         tsconfigRootDir: import.meta.dirname,
       },

@@ -110,16 +110,32 @@ describe("ApiClient bearer attachment and bounded recovery", () => {
     expect(onSessionExpired).toHaveBeenCalledTimes(1);
   });
 
-  it("does not retry an authorization or verification failure", async () => {
-    responses.push(failure(403, "EMAIL_VERIFICATION_REQUIRED"));
-    await expect(client().listSessions()).rejects.toBeInstanceOf(ApiError);
-    expect(calls).toHaveLength(1);
-    expect(onEmailVerificationRequired).toHaveBeenCalledTimes(1);
-    expect(onSessionExpired).not.toHaveBeenCalled();
+  it("recovers silently when verification completed since the token was issued", async () => {
+    responses.push(failure(403, "EMAIL_VERIFICATION_REQUIRED"), jsonResponse(200, { sessions: [] }));
 
-    responses.push(failure(403, "FORBIDDEN"));
+    await client().listSessions();
+
+    expect(calls).toHaveLength(2);
+    expect(getIdToken).toHaveBeenNthCalledWith(2, true);
+    expect(headerOf(calls[1], "authorization")).toBe("Bearer refreshed-token");
+    expect(onEmailVerificationRequired).not.toHaveBeenCalled();
+  });
+
+  it("reports a verification failure only after the refreshed replay also fails", async () => {
+    responses.push(
+      failure(403, "EMAIL_VERIFICATION_REQUIRED"),
+      failure(403, "EMAIL_VERIFICATION_REQUIRED"),
+    );
     await expect(client().listSessions()).rejects.toBeInstanceOf(ApiError);
     expect(calls).toHaveLength(2);
+    expect(onEmailVerificationRequired).toHaveBeenCalledTimes(1);
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an authorization failure", async () => {
+    responses.push(failure(403, "FORBIDDEN"));
+    await expect(client().listSessions()).rejects.toBeInstanceOf(ApiError);
+    expect(calls).toHaveLength(1);
   });
 
   it("does not retry rate limits, validation failures, or server errors", async () => {

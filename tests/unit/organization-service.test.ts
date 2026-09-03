@@ -191,14 +191,28 @@ describe("invitations", () => {
   });
 
   it("survives two simultaneous acceptance attempts with a single membership", async () => {
-    const context = createContext();
+    const context = createRaceContext();
     const orgId = await createOrgWith(context);
     const invite = await context.service.createInvite("user_owner", orgId, "member", randomUUID());
+
+    // Both acceptances are held at the transactional boundary until each has passed every
+    // service pre-check, so the overlap is guaranteed rather than left to scheduling luck.
+    let arrived = 0;
+    let releaseBoth = () => undefined as void;
+    const bothArrived = new Promise<void>((resolve) => {
+      releaseBoth = resolve;
+    });
+    context.organizations.beforeAcceptInvite = async () => {
+      arrived += 1;
+      if (arrived === 2) releaseBoth();
+      await bothArrived;
+    };
 
     const results = await Promise.allSettled([
       context.service.acceptInvite("user_a", orgId, invite.inviteId, invite.secret, randomUUID()),
       context.service.acceptInvite("user_b", orgId, invite.inviteId, invite.secret, randomUUID()),
     ]);
+    expect(arrived).toBe(2);
     const fulfilled = results.filter((result) => result.status === "fulfilled");
     expect(fulfilled).toHaveLength(1);
 
@@ -585,6 +599,17 @@ class RacingOrganizationRepository extends InMemoryOrganizationRepository {
   ) {
     await this.runHook();
     return super.removeMembership(...args);
+  }
+
+  // Unlike the one-shot mutation hook above, this one runs for every acceptance so a test can
+  // hold several concurrent acceptances at the transactional boundary and release them together.
+  beforeAcceptInvite: (() => Promise<void>) | null = null;
+
+  override async acceptInvite(
+    ...args: Parameters<InMemoryOrganizationRepository["acceptInvite"]>
+  ) {
+    if (this.beforeAcceptInvite) await this.beforeAcceptInvite();
+    return super.acceptInvite(...args);
   }
 }
 

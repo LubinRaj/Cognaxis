@@ -3,6 +3,7 @@ import {
   GoogleAuthProvider,
   browserLocalPersistence,
   browserPopupRedirectResolver,
+  connectAuthEmulator,
   getAuth,
   indexedDBLocalPersistence,
   initializeAuth,
@@ -51,6 +52,19 @@ export const firebaseApp: FirebaseApp | null = isFirebaseConfigured
   : null;
 
 export const auth: Auth | null = firebaseApp ? createAuth(firebaseApp) : null;
+
+// Automated end-to-end builds point authentication at the local Firebase Auth emulator. Both
+// conditions are required: the host is compiled in only by the test build, and the page must be
+// served from a loopback address, so a deployed bundle can never talk to an emulator.
+const authEmulatorHost = import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_HOST;
+if (
+  auth &&
+  typeof authEmulatorHost === "string" &&
+  authEmulatorHost.length > 0 &&
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+) {
+  connectAuthEmulator(auth, `http://${authEmulatorHost}`, { disableWarnings: true });
+}
 
 export function createGoogleProvider(): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();

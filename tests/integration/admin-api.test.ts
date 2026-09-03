@@ -133,6 +133,30 @@ describe("platform admin API", () => {
     expect(response.text).toContain("SELF_TARGET_FORBIDDEN");
   });
 
+  it("rate limits admin mutations before validation or repositories run", async () => {
+    // Ten mutation attempts consume the sensitive-route budget (each fails harmlessly on
+    // validation); the eleventh is refused with the standard rate-limit contract.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await request(context.app)
+        .patch("/api/v1/admin/users/user_bravo/role")
+        .set("authorization", auth("user_root"))
+        .send({})
+        .expect(400);
+    }
+    const limited = await request(context.app)
+      .patch("/api/v1/admin/users/user_bravo/role")
+      .set("authorization", auth("user_root"))
+      .send({})
+      .expect(429);
+    expect(JSON.parse(limited.text)).toMatchObject({ error: { code: "RATE_LIMITED" } });
+
+    // Reads are governed separately and continue to work.
+    await request(context.app)
+      .get("/api/v1/admin/overview")
+      .set("authorization", auth("user_root"))
+      .expect(200);
+  });
+
   it("protects the last active super admin under concurrent demotion", async () => {
     await request(context.app)
       .patch("/api/v1/admin/users/user_alpha/role")

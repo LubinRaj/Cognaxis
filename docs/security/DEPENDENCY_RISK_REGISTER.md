@@ -25,12 +25,21 @@ arithmetic uses the platform `Intl` API, so no charting or date library was adde
 | ID | Dependency path | Severity | Exposure in Cognaxis | Disposition |
 |---|---|---:|---|---|
 | D-01 | `firebase-admin -> @google-cloud/storage -> gaxios/teeny-request -> uuid@9` | Moderate | The advisory concerns caller-supplied buffers in UUID v3/v5/v6. Cognaxis does not call those UUID APIs and does not implement Cloud Storage in the MVP. | Track upstream Firebase Admin/Storage updates. Do not use `npm audit fix --force`, which currently proposes an unsupported Firebase Admin downgrade. Re-evaluate before release and after dependency updates. |
+| D-02 | `firebase-tools -> @google-cloud/pubsub / @opentelemetry/core / nested express / body-parser / qs / re2 / gaxios` | Moderate (dev-only) | The pinned Firebase CLI is a development dependency used exclusively to run the local Auth/Firestore emulators for tests. No application code imports it, it never runs in production, and it processes only synthetic emulator traffic on loopback. | Accepted for development. Track `firebase-tools` releases and re-pin when upstream absorbs the fixed transitive versions. Do not use `npm audit fix --force` or overrides merely to empty the report. |
 
-`npm audit` reports six moderate findings, all belonging to the single D-01 path. Installing the
-authentication packages below introduced no new advisory of any severity.
+Current audit state (verified 3 September 2026):
+
+- `npm audit --omit=dev` reports **six moderate** findings — all the single D-01 chain
+  (`uuid`, `gaxios`, `teeny-request`, `retry-request`, `@google-cloud/storage`,
+  `firebase-admin`). These are the only advisories touching anything that ships.
+- Full `npm audit`, including development tooling, reports **thirteen moderate** findings — the
+  six above plus seven inherited through the pinned Firebase CLI (D-02: `firebase-tools`,
+  `@google-cloud/pubsub`, `@opentelemetry/core`, a nested `express`/`body-parser`, `qs`, `re2`).
+- There are **no high or critical findings** at either level.
 
 Release policy remains unchanged: no known Critical or High finding may ship. Moderate findings
-require a documented reachability assessment and disposition.
+require a documented reachability assessment and disposition, and neither incompatible
+downgrades nor risky overrides are permitted merely to make the report empty.
 
 ## Authentication dependency review (31 August 2026)
 
@@ -75,6 +84,18 @@ Pinned exactly, development-only, never shipped in a browser or server artefact.
 | `@testing-library/user-event` | 14.6.6 | Realistic keyboard and pointer interaction | MIT |
 | `@testing-library/jest-dom` | 7.0.1 | DOM assertions | MIT |
 | `axe-core` | 4.13.0 | Automated accessibility scanning of rendered screens | MPL-2.0 |
+
+## Automated-testing dependency review (3 September 2026)
+
+Added for the end-to-end and emulator test system. All are development dependencies, pinned in
+the lockfile, never imported by application code, and not part of the production browser or
+server bundles.
+
+| Package | Version | Purpose | Licence | Notes |
+|---|---|---|---|---|
+| `@playwright/test` | 1.62.1 (exact) | Browser end-to-end runner (Chromium only) | Apache-2.0 | Traces/videos/reports are gitignored; no authentication state is persisted or committed |
+| `firebase-tools` | 15.29.0 (exact) | Local Auth and Firestore emulators for tests | MIT | Source of the D-02 dev-only advisory chain above; loopback emulator traffic with synthetic data only |
+| `@firebase/rules-unit-testing` | ^5.0.2 | Firestore Security Rules assertions against the emulator | Apache-2.0 | Talks only to the local emulator with the `demo-cognaxis-e2e` project id |
 
 ### Lockfile note
 

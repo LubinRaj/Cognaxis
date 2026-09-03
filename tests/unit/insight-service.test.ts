@@ -305,7 +305,12 @@ describe("insight generation", () => {
     await seedSessionWithSignal(context);
 
     let release: (() => void) | undefined;
+    let signalEntered: (() => void) | undefined;
+    const modelEntered = new Promise<void>((resolve) => {
+      signalEntered = resolve;
+    });
     context.model.generateNarrative = async () => {
+      signalEntered?.();
       await new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -319,7 +324,8 @@ describe("insight generation", () => {
     };
 
     const first = context.service.generate("user_alpha", "day", TODAY_KEY, randomUUID(), false);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The model has been entered, so the generation lease is provably held.
+    await modelEntered;
     await expect(
       context.service.generate("user_alpha", "day", TODAY_KEY, randomUUID(), false),
     ).rejects.toMatchObject({ status: 429 });

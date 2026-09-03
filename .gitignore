@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.local
 *.pem
 *.key
@@ -32,6 +33,9 @@ ui-debug.log*
 .emulator-data/
 test-results/
 playwright-report/
+blob-report/
+playwright/.auth/
+.tools/
 
 # IDE and operating system files
 .DS_Store

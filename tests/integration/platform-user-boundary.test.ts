@@ -65,13 +65,23 @@ describe("platform user boundary", () => {
       { method: "post" as const, path: "/api/v1/sessions/abc123456789/messages" },
       { method: "post" as const, path: "/api/v1/sessions/abc123456789/summarize" },
       { method: "delete" as const, path: "/api/v1/sessions/abc123456789" },
+      { method: "get" as const, path: "/api/v1/sessions/abc123456789/signals" },
+      { method: "put" as const, path: "/api/v1/sessions/abc123456789/signals" },
+      { method: "get" as const, path: "/api/v1/personal/preferences" },
+      { method: "put" as const, path: "/api/v1/personal/preferences" },
+      { method: "get" as const, path: "/api/v1/personal/insights/dashboard?rangeDays=7" },
+      { method: "get" as const, path: "/api/v1/personal/map-points" },
+      { method: "get" as const, path: "/api/v1/organizations" },
+      { method: "post" as const, path: "/api/v1/organizations" },
+      { method: "get" as const, path: "/api/v1/organizations/org_abc123456789" },
+      { method: "get" as const, path: "/api/v1/admin/overview" },
     ];
 
     for (const routeCase of routes) {
       const response = await request(app)
         [routeCase.method](routeCase.path)
         .set("authorization", "Bearer token-user_alpha")
-        .send(routeCase.method === "post" ? {} : undefined);
+        .send(routeCase.method === "post" || routeCase.method === "put" ? {} : undefined);
       expect(response.status).toBe(403);
       expect(errorCode(response.text)).toBe("ACCOUNT_SUSPENDED");
     }

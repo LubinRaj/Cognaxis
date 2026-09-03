@@ -8,12 +8,16 @@ export type ApiFailure = {
 
 export type TokenRefreshDecisionInput = ApiFailure & { method: string };
 
-// The backend emits 401 UNAUTHENTICATED from the authentication middleware, before any handler,
-// repository, or model call runs. A replay after a forced token refresh therefore cannot duplicate
-// a write for any HTTP method. No other status or code is replayed.
+// The backend emits 401 UNAUTHENTICATED from the authentication middleware and 403
+// EMAIL_VERIFICATION_REQUIRED from the verified-email middleware, both before any handler,
+// repository, or model call runs. A replay after a forced token refresh therefore cannot
+// duplicate a write for any HTTP method. Verification is replayed because that claim genuinely
+// changes server-side the moment the user follows the mail link; a stale token would otherwise
+// bounce a freshly verified user back to the verify screen. No other status or code is replayed.
 export function shouldForceTokenRefresh(input: TokenRefreshDecisionInput): boolean {
   if (input.completedRefreshes >= MAX_TOKEN_REFRESH_ATTEMPTS) return false;
-  return input.status === 401 && input.errorCode === "UNAUTHENTICATED";
+  if (input.status === 401 && input.errorCode === "UNAUTHENTICATED") return true;
+  return input.status === 403 && input.errorCode === "EMAIL_VERIFICATION_REQUIRED";
 }
 
 export function isSessionTerminatingResponse(failure: ApiFailure): boolean {

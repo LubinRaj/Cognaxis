@@ -8,13 +8,20 @@ import type { AppConfig } from "./config/env.js";
 import { AppError } from "./errors.js";
 import { requestContext } from "./middleware/request-context.js";
 import { createJournalRouter } from "./routes/journal-routes.js";
+import { createPersonalRoutes } from "./routes/personal-routes.js";
+import { createOrganizationRoutes } from "./routes/organization-routes.js";
+import { createPlatformAdminRoutes } from "./routes/admin-routes.js";
 import type { JournalService } from "./services/journal-service.js";
+import type { SignalService } from "./services/signal-service.js";
+import type { InsightService } from "./services/insight-service.js";
 import type { TokenVerifier } from "./types.js";
 
 export type AppDependencies = {
   config: AppConfig;
   verifier: TokenVerifier;
   journalService: JournalService;
+  signalService: SignalService;
+  insightService: InsightService;
 };
 
 type RequestWithContext = Request & { requestId?: string };
@@ -98,6 +105,9 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   app.use("/api/v1", createJournalRouter(journalService, verifier));
+  app.use("/api/v1", createPersonalRoutes(verifier, dependencies.signalService, dependencies.insightService));
+  app.use("/api/v1", createOrganizationRoutes(verifier));
+  app.use("/api/v1", createPlatformAdminRoutes(verifier));
 
   if (config.NODE_ENV === "production") {
     const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -111,8 +121,7 @@ export async function createApp(dependencies: AppDependencies) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { 
-        middlewareMode: true, 
-        hmr: { port: 0 } 
+        middlewareMode: true
       },
       appType: "spa",
     });
@@ -138,7 +147,7 @@ export async function createApp(dependencies: AppDependencies) {
         route: request.path,
         status,
         code,
-        errorType: error instanceof Error ? error.name : "UnknownError",
+        errorType: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : "Unknown", stack: error instanceof Error ? error.stack : "Unknown",
       }),
     );
 

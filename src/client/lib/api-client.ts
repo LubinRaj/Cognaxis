@@ -54,7 +54,7 @@ export class ApiClient {
     });
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  public async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? "GET";
     let completedRefreshes = 0;
     let response = await this.send(path, init, false);

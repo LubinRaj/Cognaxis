@@ -7,6 +7,8 @@ import type { AppConfig } from "../../src/server/config/env.js";
 import { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
 import type { ConversationModel } from "../../src/server/services/conversation-model.js";
 import { JournalService } from "../../src/server/services/journal-service.js";
+import type { SignalService } from "../../src/server/services/signal-service.js";
+import type { InsightService } from "../../src/server/services/insight-service.js";
 import type { AuthenticatedPrincipal, TokenVerifier } from "../../src/server/types.js";
 
 const nowSeconds = Math.floor(Date.now() / 1_000);
@@ -99,6 +101,8 @@ describe("verified email authorization boundary", () => {
       config,
       verifier,
       journalService: new JournalService(repository, model),
+      signalService: {} as unknown as SignalService,
+      insightService: {} as unknown as InsightService,
     });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });

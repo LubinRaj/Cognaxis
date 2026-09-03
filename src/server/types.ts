@@ -1,4 +1,10 @@
 import type { Request } from "express";
+import type {
+  PlatformUser,
+  PersonalScope,
+  OrganizationScope,
+  PlatformAdminScope,
+} from "../shared/schemas.js";
 
 export type AuthenticatedPrincipal = {
   uid: string;
@@ -14,6 +20,10 @@ declare global {
     interface Request {
       principal: AuthenticatedPrincipal;
       requestId: string;
+      platformUser?: PlatformUser;
+      personalScope?: PersonalScope;
+      organizationScope?: OrganizationScope;
+      platformAdminScope?: PlatformAdminScope;
     }
   }
 }

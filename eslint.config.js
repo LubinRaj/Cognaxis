@@ -4,7 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "dist-server/**", "coverage/**", "node_modules/**"] },
+  { ignores: ["dist/**", "dist-server/**", "coverage/**", "node_modules/**", "vitest-mock.ts"] },
   { ...js.configs.recommended, files: ["**/*.js"] },
   ...tseslint.configs.recommendedTypeChecked.map((configuration) => ({
     ...configuration,

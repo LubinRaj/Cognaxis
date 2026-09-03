@@ -48,7 +48,12 @@ export type MaterialIconName =
   | "chat_bubble"
   | "person"
   | "description"
-  | "checklist";
+  | "checklist"
+  | "my_location"
+  | "place"
+  | "auto_graph"
+  | "map"
+  | "groups";
 
 interface MaterialIconProps {
   name: MaterialIconName;

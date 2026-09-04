@@ -22,6 +22,17 @@ class RecordingModel implements ConversationModel {
     return `reply-${this.replyCalls}`;
   }
 
+  async *replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string> {
+    this.replyCalls += 1;
+    this.replyContexts.push(structuredClone(messages));
+    this.onReplyStart?.();
+    if (this.holdReply) await this.holdReply;
+    if (this.failReply) throw new Error("MODEL_FAILED");
+    if (signal?.aborted) throw new Error("AbortError");
+    yield `reply-`;
+    yield `${this.replyCalls}`;
+  }
+
   async summarize(): Promise<SummaryOutput> {
     if (this.failSummary) throw new Error("SUMMARY_FAILED");
     return {
@@ -217,5 +228,53 @@ describe("content-change notifications", () => {
       "Still succeeds.",
     );
     expect(exchange.assistantMessage.content).toContain("reply");
+  });
+});
+
+describe("journal streaming", () => {
+  it("streams chunks and persists correctly", async () => {
+    const { repository, model, service, session } = await fixture();
+    const requestId = randomUUID();
+    let userMsg: any = null;
+    let textChunks: string[] = [];
+    
+    const exchange = await service.streamMessage(
+      "user_alpha", session.id, requestId, "Streamed thought",
+      (um) => { userMsg = um; },
+      (chunk) => { textChunks.push(chunk); }
+    );
+    
+    expect(userMsg).not.toBeNull();
+    expect(userMsg.content).toBe("Streamed thought");
+    expect(textChunks.join("")).toBe("reply-1");
+    expect(exchange.assistantMessage.content).toBe("reply-1");
+    expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(2);
+  });
+
+  it("handles cancellation", async () => {
+    const { repository, model, service, session } = await fixture();
+    const requestId = randomUUID();
+    
+    // We will cancel after start, so we mock the model stream to check signal
+    const abortController = new AbortController();
+    let releaseReplies = () => undefined as void;
+    model.holdReply = new Promise<void>((resolve) => {
+      releaseReplies = resolve;
+    });
+    
+    const streamPromise = service.streamMessage(
+      "user_alpha", session.id, requestId, "Will cancel",
+      () => { 
+        // Abort on start
+        abortController.abort(); 
+        releaseReplies(); 
+      },
+      () => {},
+      abortController.signal
+    );
+    
+    await expect(streamPromise).rejects.toThrow("AbortError");
+    // Should not persist
+    expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(0);
   });
 });

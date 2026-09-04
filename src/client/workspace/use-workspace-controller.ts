@@ -59,6 +59,7 @@ export type WorkspaceController = {
   dismissSendError: () => void;
   dismissSummaryError: () => void;
   dismissDeleteError: () => void;
+  cancelSend: () => void;
 };
 
 function messageOf(error: unknown, fallback: string): string {
@@ -112,6 +113,7 @@ export function useWorkspaceController(
   const messageRetries = useRef(
     new Map<string, { content: string; requestId: string }>(),
   );
+  const sendAbortController = useRef<AbortController | null>(null);
 
   const draft = activeSessionId ? (drafts[activeSessionId] ?? "") : "";
   const setDraft = useCallback(
@@ -252,6 +254,7 @@ export function useWorkspaceController(
       previousAttempt?.content === content ? previousAttempt.requestId : crypto.randomUUID();
     messageRetries.current.set(targetId, { content, requestId });
     const optimisticId = `pending-${requestId}`;
+    const optimisticAssistantId = `pending-assistant-${requestId}`;
 
     setSendStatus("pending");
     setSendTargetId(targetId);
@@ -269,13 +272,39 @@ export function useWorkspaceController(
                 content,
                 createdAt: new Date().toISOString(),
               },
+              {
+                id: optimisticAssistantId,
+                role: "model",
+                content: "",
+                createdAt: new Date().toISOString(),
+              },
             ],
           }
         : current,
     );
 
+    const abortController = new AbortController();
+    sendAbortController.current = abortController;
+
     try {
-      const exchange = await api.addMessage(targetId, { content, requestId });
+      const exchange = await api.addMessageStream(
+        targetId,
+        { content, requestId },
+        (chunkText) => {
+          if (!mounted.current) return;
+          setActiveSession((current) => {
+            if (!current || current.id !== targetId) return current;
+            return {
+              ...current,
+              messages: current.messages.map((m) =>
+                m.id === optimisticAssistantId ? { ...m, content: m.content + chunkText } : m
+              ),
+            };
+          });
+        },
+        abortController.signal
+      );
+      
       if (!mounted.current) return false;
       messageRetries.current.delete(targetId);
 
@@ -298,12 +327,41 @@ export function useWorkspaceController(
       });
       setSendStatus("idle");
       setSendTargetId(null);
+      sendAbortController.current = null;
       return true;
-    } catch (error) {
+    } catch (error: any) {
       if (!mounted.current) return false;
+      
+      if (error.name === "AbortError" || abortController.signal.aborted) {
+        setActiveSession((current) =>
+          current && current.id === targetId
+            ? {
+                ...current,
+                messages: current.messages.filter(
+                  (m) => m.id !== optimisticId && m.id !== optimisticAssistantId
+                ),
+              }
+            : current,
+        );
+        setDrafts((current) =>
+          (current[targetId] ?? "").length === 0
+            ? { ...current, [targetId]: originalDraft }
+            : current,
+        );
+        setSendStatus("idle");
+        setSendTargetId(null);
+        sendAbortController.current = null;
+        return false;
+      }
+
       setActiveSession((current) =>
         current && current.id === targetId
-          ? removeOptimisticMessage(current, optimisticId)
+          ? {
+              ...current,
+              messages: current.messages.filter(
+                (m) => m.id !== optimisticId && m.id !== optimisticAssistantId
+              ),
+            }
           : current,
       );
       // Drafts belong to their originating reflection. Restore the exact submitted text only when
@@ -315,6 +373,7 @@ export function useWorkspaceController(
       );
       setSendStatus("error");
       setSendTargetId(null);
+      sendAbortController.current = null;
       setSendFailure({
         sessionId: targetId,
         message: messageOf(error, "Your message could not be sent. Try again."),
@@ -420,6 +479,13 @@ export function useWorkspaceController(
   const summaryError =
     summaryFailure?.sessionId === activeSessionId ? summaryFailure.message : null;
 
+  const cancelSend = useCallback(() => {
+    if (sendAbortController.current) {
+      sendAbortController.current.abort();
+      sendAbortController.current = null;
+    }
+  }, []);
+
   return {
     sessions,
     visibleSessions,
@@ -459,5 +525,6 @@ export function useWorkspaceController(
     dismissSendError: () => setSendFailure(null),
     dismissSummaryError: () => setSummaryFailure(null),
     dismissDeleteError: () => setDeleteError(null),
+    cancelSend,
   };
 }

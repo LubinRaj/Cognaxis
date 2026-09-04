@@ -60,5 +60,9 @@ const environmentSchema = z
 export type AppConfig = z.infer<typeof environmentSchema>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return environmentSchema.parse(environment);
+  const envToParse = { ...environment };
+  if (envToParse.NGINX_PORT && envToParse.PORT === envToParse.NGINX_PORT) {
+    envToParse.PORT = envToParse.DEFAULT_APP_PORT ?? "3000";
+  }
+  return environmentSchema.parse(envToParse);
 }

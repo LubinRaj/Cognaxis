@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="cognaxisGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="#0f172a" />
+  <!-- Psychiatry / Axis circular emblem -->
+  <circle cx="16" cy="16" r="9" fill="none" stroke="url(#cognaxisGrad)" stroke-width="2.5" />
+  <circle cx="16" cy="16" r="3.5" fill="url(#cognaxisGrad)" />
+  <line x1="16" y1="3" x2="16" y2="7" stroke="url(#cognaxisGrad)" stroke-width="2" stroke-linecap="round" />
+  <line x1="16" y1="25" x2="16" y2="29" stroke="url(#cognaxisGrad)" stroke-width="2" stroke-linecap="round" />
+  <line x1="3" y1="16" x2="7" y2="16" stroke="url(#cognaxisGrad)" stroke-width="2" stroke-linecap="round" />
+  <line x1="25" y1="16" x2="29" y2="16" stroke="url(#cognaxisGrad)" stroke-width="2" stroke-linecap="round" />
+</svg>

@@ -85,6 +85,13 @@ function buildContentSecurityPolicy(config: AppConfig) {
     workerSrc.push("blob:");
   }
 
+  const isAiStudio = Boolean(process.env.APPLET_ID);
+  const frameAncestors = development
+    ? ["*"]
+    : isAiStudio
+      ? ["'self'", "https://*.google.com", "https://*.corp.google.com:*", "https://localhost.corp.google.com:*", "https://*.run.app"]
+      : ["'none'"];
+
   return {
     defaultSrc: ["'self'"],
     scriptSrc,
@@ -97,7 +104,7 @@ function buildContentSecurityPolicy(config: AppConfig) {
     objectSrc: ["'none'"],
     baseUri: ["'self'"],
     formAction: ["'self'"],
-    frameAncestors: development ? ["*"] : ["'none'"],
+    frameAncestors,
   };
 }
 
@@ -138,7 +145,8 @@ export async function createApp(dependencies: AppDependencies) {
   app.use(
     helmet({
       contentSecurityPolicy: { directives: buildContentSecurityPolicy(config) },
-      frameguard: config.NODE_ENV !== "development" ? { action: "deny" } : false,
+      frameguard:
+        config.NODE_ENV !== "development" && !process.env.APPLET_ID ? { action: "deny" } : false,
       crossOriginEmbedderPolicy: false,
       crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
       referrerPolicy: { policy: "no-referrer" },
@@ -150,7 +158,7 @@ export async function createApp(dependencies: AppDependencies) {
         if (
           !origin ||
           origin === config.APP_ORIGIN ||
-          (config.NODE_ENV === "development" &&
+          ((config.NODE_ENV === "development" || Boolean(process.env.APPLET_ID)) &&
             (origin.startsWith("http://localhost:") ||
               origin.startsWith("http://127.0.0.1:") ||
               origin.endsWith(".run.app") ||
@@ -252,6 +260,7 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
+    console.log("error object:", error, "isAppError?", error instanceof AppError, "error.name:", error.name);
     const appError = error instanceof AppError ? error : null;
     const status = appError?.status ?? 500;
     const code = appError?.code ?? "INTERNAL_ERROR";
@@ -266,10 +275,13 @@ export async function createApp(dependencies: AppDependencies) {
         route: routeTemplate(request),
         status,
         code,
-        errorType: error instanceof Error ? error.name : "UnknownError",
+        errorType: error instanceof Error ? error.name : "UnknownError", stack: error instanceof Error ? error.stack : undefined,
       }),
     );
 
+    if (response.headersSent) {
+      return _next(error);
+    }
     response.status(status).json({ error: { code, message, requestId } });
   };
   app.use(errorHandler);

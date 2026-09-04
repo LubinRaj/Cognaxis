@@ -25,6 +25,12 @@ import { SignalService } from "./services/signal-service.js";
 import { EnvSecretProvider } from "./services/secret-provider.js";
 import { startServer } from "./start.js";
 
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {
+  // .env.local is optional
+}
+
 const config = loadConfig();
 const verifier = new FirebaseTokenVerifier(config);
 const repository = new FirestoreJournalRepository();

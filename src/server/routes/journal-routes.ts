@@ -87,16 +87,64 @@ export function createJournalRouter(
     "/sessions/:sessionId/messages",
     modelLimiter,
     validateBody(createMessageSchema),
-    route(async (request, response) => {
+    (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
       const { content, requestId } = createMessageSchema.parse(request.body);
-      const exchange = await service.addMessage(
-        request.principal.uid,
-        sessionId(request),
-        requestId,
-        content,
-      );
-      response.status(201).json(exchange);
-    }),
+      
+      const abortController = new AbortController();
+      request.on("close", () => abortController.abort());
+
+      response.status(201);
+      response.setHeader("Content-Type", "application/json-lines");
+      response.setHeader("Cache-Control", "no-store, no-transform");
+      response.setHeader("X-Accel-Buffering", "no");
+
+      service
+        .streamMessage(
+          request.principal.uid,
+          sessionId(request),
+          requestId,
+          content,
+          (userMessage) => {
+            response.write(JSON.stringify({ type: "start", userMessage }) + "\n");
+          },
+          (text) => {
+            response.write(JSON.stringify({ type: "chunk", text }) + "\n");
+          },
+          abortController.signal,
+        )
+        .then((exchange) => {
+          response.write(JSON.stringify({ type: "complete", exchange }) + "\n");
+          response.end();
+        })
+        .catch((error) => {
+          if (abortController.signal.aborted || (error as Error).name === "AbortError") {
+            response.end();
+            return;
+          }
+          if (response.headersSent) {
+            console.error(
+              JSON.stringify({
+                severity: "ERROR",
+                requestId: (request as any).requestId,
+                method: request.method,
+                route: request.route?.path,
+                status: 500,
+                code: "INTERNAL_ERROR",
+                errorType: error instanceof Error ? error.name : "UnknownError",
+              })
+            );
+            response.write(
+              JSON.stringify({
+                type: "error",
+                message: error instanceof AppError ? error.message : "Internal stream error",
+              }) + "\n",
+            );
+            response.end();
+          } else {
+            next(error);
+          }
+        });
+    },
   );
 
   router.post(

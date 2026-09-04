@@ -29,6 +29,28 @@ export class DeterministicConversationModel implements ConversationModel {
     return `Test reflection response ${userMessages.length}`;
   }
 
+  async *replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string> {
+    const userMessages = messages.filter((message) => message.role === "user");
+    const latest = userMessages.at(-1)?.content ?? "";
+    if (latest.includes(MODEL_ERROR_TRIGGER)) {
+      throw new Error("Deterministic model failure requested by the test.");
+    }
+    if (latest.includes(MODEL_SLOW_TRIGGER)) {
+      await wait(500);
+      if (signal?.aborted) throw new Error("AbortError");
+      yield "Test ";
+      await wait(500);
+      if (signal?.aborted) throw new Error("AbortError");
+      yield "reflection ";
+      await wait(500);
+      if (signal?.aborted) throw new Error("AbortError");
+      yield `response ${userMessages.length}`;
+      return;
+    }
+    
+    yield `Test reflection response ${userMessages.length}`;
+  }
+
   async summarize(): Promise<SummaryOutput> {
     return {
       title: "Reflection summary",

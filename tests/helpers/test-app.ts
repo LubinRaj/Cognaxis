@@ -58,6 +58,14 @@ export class TestModel implements ConversationModel {
     return "A grounded response for the authenticated journal.";
   }
 
+  async *replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string> {
+    this.calls += 1;
+    this.lastMessages = structuredClone(messages);
+    if (signal?.aborted) throw new Error("AbortError");
+    yield "A grounded ";
+    yield "response for the authenticated journal.";
+  }
+
   async summarize(): Promise<SummaryOutput> {
     this.calls += 1;
     return {

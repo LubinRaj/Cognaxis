@@ -113,6 +113,7 @@ describe("journal API security boundary", () => {
     const secretValue = "synthetic-upstream-credential-93cd41";
     const failingModel = new TestModel();
     failingModel.reply = () => Promise.reject(new Error(`upstream rejected key ${secretValue}`));
+    failingModel.replyStream = async function* () { throw new Error(`upstream rejected key ${secretValue}`); };
     const local = await createTestApp({ model: failingModel });
 
     const created = await request(local.app)
@@ -125,7 +126,7 @@ describe("journal API security boundary", () => {
       .set("authorization", "Bearer token-user_alpha")
       .send({ requestId: randomUUID(), content: "A thought." });
 
-    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(response.text).toContain("error");
     expect(response.text).not.toContain(secretValue);
 
     const loggedLines = vi

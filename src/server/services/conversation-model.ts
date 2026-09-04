@@ -7,6 +7,7 @@ import type { SecretProvider } from "./secret-provider.js";
 
 export interface ConversationModel {
   reply(messages: JournalMessage[]): Promise<string>;
+  replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string>;
   summarize(messages: JournalMessage[]): Promise<SummaryOutput>;
 }
 
@@ -85,6 +86,24 @@ export class GeminiConversationModel implements ConversationModel {
       throw new AppError(502, "INVALID_MODEL_RESPONSE", "AI returned an invalid response.");
     }
     return text;
+  }
+
+  async *replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string> {
+    const client = await this.getClient();
+    const responseStream = await client.models.generateContentStream({
+      model: this.config.GEMINI_MODEL,
+      contents: boundedContents(messages),
+      config: {
+        systemInstruction: this.instruction,
+        maxOutputTokens: 1_200,
+        abortSignal: signal,
+      },
+    });
+
+    for await (const chunk of responseStream) {
+      if (signal?.aborted) throw new Error("AbortError");
+      if (chunk.text) yield chunk.text;
+    }
   }
 
   async summarize(messages: JournalMessage[]): Promise<SummaryOutput> {

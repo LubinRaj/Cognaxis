@@ -7,7 +7,7 @@
     "node": ">=22 <25"
   },
   "scripts": {
-    "dev": "tsx watch --env-file=.env.local src/server/index.ts",
+    "dev": "tsx watch src/server/index.ts",
     "build": "npm run typecheck:app && NODE_ENV=production vite build && tsc -p tsconfig.server.json",
     "start": "node dist-server/server/index.js",
     "typecheck:app": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",

@@ -16,6 +16,7 @@ type ReflectionComposerProps = {
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
+  onCancel?: () => void;
   sending: boolean;
   submissionBlocked?: boolean;
   submissionBlockedReason?: string;
@@ -28,6 +29,7 @@ export function ReflectionComposer({
   draft,
   onDraftChange,
   onSubmit,
+  onCancel,
   sending,
   submissionBlocked = false,
   submissionBlockedReason,
@@ -112,15 +114,26 @@ export function ReflectionComposer({
             className="text-on-surface placeholder:text-on-surface-variant max-h-52 min-h-11 flex-1 resize-none bg-transparent px-3 py-2.5 text-[0.9375rem] leading-relaxed outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
 
-          <IconButton
-            icon="send"
-            label={sending ? "Sending message" : "Send message"}
-            type="submit"
-            tone="primary"
-            disabled={!canSend}
-            title={submissionBlocked ? submissionBlockedReason : undefined}
-            className="bg-primary text-on-primary hover:bg-primary disabled:bg-surface-container-high disabled:text-on-surface-variant mb-0.5 hover:opacity-90"
-          />
+          {sending && onCancel ? (
+            <IconButton
+              icon="close"
+              label="Cancel response"
+              type="button"
+              tone="primary"
+              onClick={onCancel}
+              className="bg-error text-on-error hover:bg-error mb-0.5 hover:opacity-90"
+            />
+          ) : (
+            <IconButton
+              icon="send"
+              label={sending ? "Sending message" : "Send message"}
+              type="submit"
+              tone="primary"
+              disabled={!canSend}
+              title={submissionBlocked ? submissionBlockedReason : undefined}
+              className="bg-primary text-on-primary hover:bg-primary disabled:bg-surface-container-high disabled:text-on-surface-variant mb-0.5 hover:opacity-90"
+            />
+          )}
         </form>
 
         <div

@@ -173,6 +173,104 @@ export class JournalService {
     };
   }
 
+  async streamMessage(
+    uid: string,
+    sessionId: string,
+    requestId: string,
+    content: string,
+    onStart: (userMessage: JournalMessage) => void,
+    onChunk: (text: string) => void,
+    signal?: AbortSignal,
+  ): Promise<MessageExchange> {
+    const previous = await this.repository.getMessageExchange(uid, sessionId, requestId);
+    if (previous) {
+      const existing = requireMatchingRequest(previous, content);
+      onStart(existing.userMessage);
+      onChunk(existing.assistantMessage.content);
+      return {
+        userMessage: existing.userMessage,
+        assistantMessage: existing.assistantMessage,
+        summary: await this.repository.getSummary(uid, sessionId),
+      };
+    }
+
+    const session = await this.repository.getSession(uid, sessionId);
+    if (!session) throw notFound();
+    if (session.status !== "active") {
+      throw new AppError(409, "SESSION_ARCHIVED", "This session is archived.");
+    }
+    if (session.messageCount + 2 > MAX_STORED_MESSAGES) {
+      throw new AppError(409, "SESSION_LIMIT_REACHED", "Start a new session to continue.");
+    }
+
+    const context = await this.repository.listMessages(uid, sessionId, MODEL_CONTEXT_MESSAGES);
+    const pendingUserMessage: JournalMessage = {
+      id: `pending_${requestId}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    
+    onStart(pendingUserMessage);
+
+    const stream = this.model.replyStream(
+      [...context, pendingUserMessage].slice(-MODEL_CONTEXT_MESSAGES),
+      signal,
+    );
+
+    let assistantContent = "";
+    for await (const chunk of stream) {
+      if (signal?.aborted) throw new Error("AbortError");
+      assistantContent += chunk;
+      onChunk(chunk);
+    }
+
+    let persisted: PersistedMessageExchange;
+    try {
+      persisted = requireMatchingRequest(
+        await this.repository.saveMessageExchange(uid, sessionId, {
+          requestId,
+          userContent: content,
+          assistantContent,
+          maxMessageCount: MAX_STORED_MESSAGES,
+        }),
+        content,
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "SESSION_NOT_FOUND") throw notFound();
+      if (error instanceof Error && error.message === "SESSION_LIMIT_REACHED") {
+        throw new AppError(409, "SESSION_LIMIT_REACHED", "Start a new session to continue.");
+      }
+      throw error;
+    }
+
+    const latestSession = await this.repository.getSession(uid, sessionId);
+    if (!latestSession) throw notFound();
+    const shouldSummarize =
+      latestSession.messageCount - latestSession.summarizedMessageCount >= AUTO_SUMMARY_INTERVAL;
+    let summary: PersonalMemory | null = null;
+    if (shouldSummarize) {
+      try {
+        summary = await this.summarize(uid, sessionId);
+      } catch {
+        // The exchange is already complete and must remain successful. A summary can be retried
+        // manually, or it will be attempted automatically on the next message.
+        summary = await this.repository.getSummary(uid, sessionId);
+      }
+    } else {
+      summary = await this.repository.getSummary(uid, sessionId);
+    }
+
+    await this.notifyContentChanged(uid, session.createdAt);
+    await this.usage?.record("messageExchangesCompleted");
+
+    return {
+      userMessage: persisted.userMessage,
+      assistantMessage: persisted.assistantMessage,
+      summary,
+    };
+  }
+
   async summarize(uid: string, sessionId: string): Promise<PersonalMemory> {
     const session = await this.repository.getSession(uid, sessionId);
     if (!session) throw notFound();

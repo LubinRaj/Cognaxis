@@ -309,6 +309,7 @@ export function WorkspaceShell({
                 draft={workspace.draft}
                 onDraftChange={workspace.setDraft}
                 onSubmit={() => void send()}
+                onCancel={workspace.cancelSend}
                 sending={activeMessagePending}
                 submissionBlocked={anotherMessagePending}
                 submissionBlockedReason="Another reflection is still waiting for a response."

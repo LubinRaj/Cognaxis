@@ -161,6 +161,73 @@ export class ApiClient {
     });
   }
 
+  async addMessageStream(
+    sessionId: string,
+    input: CreateMessageInput,
+    onChunk: (text: string) => void,
+    signal?: AbortSignal,
+  ): Promise<{
+    userMessage: SessionDetail["messages"][number];
+    assistantMessage: SessionDetail["messages"][number];
+    summary: PersonalMemory | null;
+  }> {
+    const init = { method: "POST", body: JSON.stringify(input), signal };
+    let response = await this.send(`/sessions/${encodeURIComponent(sessionId)}/messages`, init, false);
+
+    if (!response.ok) {
+      const failure = await readFailure(response);
+      if (shouldForceTokenRefresh({ ...failure, completedRefreshes: 0, method: "POST" })) {
+        response = await this.send(`/sessions/${encodeURIComponent(sessionId)}/messages`, init, true);
+        if (!response.ok) {
+          const retried = await readFailure(response);
+          this.reportTerminalFailure({ ...retried, completedRefreshes: 1 });
+          throw new ApiError(retried.status, retried.errorCode, retried.message);
+        }
+      } else {
+        this.reportTerminalFailure({ ...failure, completedRefreshes: 0 });
+        throw new ApiError(failure.status, failure.errorCode, failure.message);
+      }
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalExchange: any = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) continue;
+          
+          const parsed = JSON.parse(line);
+          if (parsed.type === "chunk") {
+            onChunk(parsed.text);
+          } else if (parsed.type === "complete") {
+            finalExchange = parsed.exchange;
+          } else if (parsed.type === "error") {
+            throw new ApiError(500, "INTERNAL_ERROR", parsed.message);
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    
+    if (!finalExchange) {
+      throw new Error("Stream closed before completion");
+    }
+    return finalExchange;
+  }
+
   async summarize(sessionId: string): Promise<PersonalMemory> {
     const body = await this.request<{ summary: PersonalMemory }>(
       `/sessions/${encodeURIComponent(sessionId)}/summarize`,

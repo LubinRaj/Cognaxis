@@ -72,15 +72,26 @@ export class GeminiConversationModel implements ConversationModel {
 
   async reply(messages: JournalMessage[]): Promise<string> {
     const client = await this.getClient();
-    const response = await client.models.generateContent({
-      model: this.config.GEMINI_MODEL,
-      contents: boundedContents(messages),
-      config: {
-        systemInstruction: this.instruction,
-        maxOutputTokens: 1_200,
-        httpOptions: { timeout: 20_000 },
-      },
-    });
+    let response;
+    try {
+      response = await client.models.generateContent({
+        model: this.config.GEMINI_MODEL,
+        contents: boundedContents(messages),
+        config: {
+          systemInstruction: this.instruction,
+          maxOutputTokens: 1_200,
+          httpOptions: { timeout: 20_000 },
+        },
+      });
+    } catch (error: unknown) {
+      const isQuotaError = 
+        (error instanceof Error && error.message.includes("resource_exhausted")) || 
+        (error && typeof error === "object" && "status" in error && error.status === 429);
+      if (isQuotaError) {
+        throw new AppError(429, "QUOTA_EXCEEDED", "The AI service quota has been exceeded. Please try again later.");
+      }
+      throw new AppError(502, "UPSTREAM_API_ERROR", "The AI service is currently unavailable or returned an error.");
+    }
     const text = response.text?.trim();
     if (!text || text.length > 12_000) {
       throw new AppError(502, "INVALID_MODEL_RESPONSE", "AI returned an invalid response.");
@@ -90,19 +101,50 @@ export class GeminiConversationModel implements ConversationModel {
 
   async *replyStream(messages: JournalMessage[], signal?: AbortSignal): AsyncIterable<string> {
     const client = await this.getClient();
-    const responseStream = await client.models.generateContentStream({
-      model: this.config.GEMINI_MODEL,
-      contents: boundedContents(messages),
-      config: {
-        systemInstruction: this.instruction,
-        maxOutputTokens: 1_200,
-        abortSignal: signal,
-      },
-    });
+    let responseStream;
+    try {
+      responseStream = await client.models.generateContentStream({
+        model: this.config.GEMINI_MODEL,
+        contents: boundedContents(messages),
+        config: {
+          systemInstruction: this.instruction,
+          maxOutputTokens: 1_200,
+          thinkingConfig: { thinkingBudget: 0 },
+          httpOptions: { timeout: 30_000 },
+          abortSignal: signal,
+        },
+      });
+    } catch (error: unknown) {
+      const isTimeout =
+        (error instanceof Error && (error.name === "TimeoutError" || error.message.toLowerCase().includes("timeout"))) ||
+        (error && typeof error === "object" && "status" in error && error.status === 504);
+      if (isTimeout) {
+        throw new AppError(504, "MODEL_TIMEOUT", "The AI service took too long to respond. Please try again.");
+      }
+      const isQuotaError = 
+        (error instanceof Error && error.message.includes("resource_exhausted")) || 
+        (error && typeof error === "object" && "status" in error && error.status === 429);
+      if (isQuotaError) {
+        throw new AppError(429, "QUOTA_EXCEEDED", "The AI service quota has been exceeded. Please try again later.");
+      }
+      throw new AppError(502, "UPSTREAM_API_ERROR", "The AI service is currently unavailable or returned an error.");
+    }
 
-    for await (const chunk of responseStream) {
-      if (signal?.aborted) throw new Error("AbortError");
-      if (chunk.text) yield chunk.text;
+    try {
+      for await (const chunk of responseStream) {
+        if (signal?.aborted) throw new Error("AbortError");
+        if (chunk.text) yield chunk.text;
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "AbortError") throw error;
+      if (error instanceof AppError) throw error;
+      const isTimeout =
+        (error instanceof Error && (error.name === "TimeoutError" || error.message.toLowerCase().includes("timeout"))) ||
+        (error && typeof error === "object" && "status" in error && error.status === 504);
+      if (isTimeout) {
+        throw new AppError(504, "MODEL_TIMEOUT", "The AI service took too long to respond. Please try again.");
+      }
+      throw new AppError(502, "STREAM_ERROR", "The AI service connection was interrupted.");
     }
   }
 
@@ -119,17 +161,29 @@ export class GeminiConversationModel implements ConversationModel {
         ],
       },
     ];
-    const response = await client.models.generateContent({
-      model: this.config.GEMINI_MODEL,
-      contents,
-      config: {
-        systemInstruction: this.instruction,
-        maxOutputTokens: 1_000,
-        responseMimeType: "application/json",
-        responseJsonSchema: summaryJsonSchema,
-        httpOptions: { timeout: 20_000 },
-      },
-    });
+    
+    let response;
+    try {
+      response = await client.models.generateContent({
+        model: this.config.GEMINI_MODEL,
+        contents,
+        config: {
+          systemInstruction: this.instruction,
+          maxOutputTokens: 1_000,
+          responseMimeType: "application/json",
+          responseJsonSchema: summaryJsonSchema,
+          httpOptions: { timeout: 20_000 },
+        },
+      });
+    } catch (error: unknown) {
+      const isQuotaError = 
+        (error instanceof Error && error.message.includes("resource_exhausted")) || 
+        (error && typeof error === "object" && "status" in error && error.status === 429);
+      if (isQuotaError) {
+        throw new AppError(429, "QUOTA_EXCEEDED", "The AI service quota has been exceeded. Please try again later.");
+      }
+      throw new AppError(502, "UPSTREAM_API_ERROR", "The AI service is currently unavailable or returned an error.");
+    }
 
     try {
       return summaryOutputSchema.parse(JSON.parse(response.text ?? ""));

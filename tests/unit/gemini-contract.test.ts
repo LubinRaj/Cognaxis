@@ -97,6 +97,28 @@ describe("Gemini request contract", () => {
     expect(request.config.responseJsonSchema).toBeDefined();
   });
 
+  it("rejects malformed or non-JSON response in summarize with 502 INVALID_MODEL_RESPONSE", async () => {
+    generateContent.mockResolvedValue({
+      text: "Not a valid JSON response",
+    });
+    const model = new GeminiConversationModel(config, secrets);
+
+    await expect(model.summarize(conversation)).rejects.toMatchObject({
+      status: 502,
+      code: "INVALID_MODEL_RESPONSE",
+    });
+  });
+
+  it("handles Gemini API error in summarize with 502 UPSTREAM_API_ERROR", async () => {
+    generateContent.mockRejectedValue(new Error("Gemini service unavailable"));
+    const model = new GeminiConversationModel(config, secrets);
+
+    await expect(model.summarize(conversation)).rejects.toMatchObject({
+      status: 502,
+      code: "UPSTREAM_API_ERROR",
+    });
+  });
+
   it("applies the organization instruction through the same compliant request shape", async () => {
     generateContent.mockResolvedValue({ text: "A grounded reply." });
     const model = new GeminiConversationModel(config, secrets, organizationSystemInstruction);

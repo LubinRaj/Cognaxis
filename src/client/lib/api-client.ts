@@ -16,6 +16,7 @@ import type {
   InvitePreview,
   JournalSession,
   MapPoint,
+  MessageExchange,
   Organization,
   OrganizationDetail,
   OrganizationInvite,
@@ -164,13 +165,27 @@ export class ApiClient {
   async addMessageStream(
     sessionId: string,
     input: CreateMessageInput,
-    onChunk: (text: string) => void,
+    callbacksOrChunk:
+      | ((text: string) => void)
+      | {
+          onStart?: (userMessage: SessionDetail["messages"][number]) => void;
+          onChunk?: (text: string) => void;
+        },
     signal?: AbortSignal,
   ): Promise<{
     userMessage: SessionDetail["messages"][number];
     assistantMessage: SessionDetail["messages"][number];
     summary: PersonalMemory | null;
   }> {
+    const onStart =
+      typeof callbacksOrChunk === "object" && callbacksOrChunk !== null
+        ? callbacksOrChunk.onStart
+        : undefined;
+    const onChunk =
+      typeof callbacksOrChunk === "function"
+        ? callbacksOrChunk
+        : callbacksOrChunk?.onChunk;
+
     const init = { method: "POST", body: JSON.stringify(input), signal };
     let response = await this.send(`/sessions/${encodeURIComponent(sessionId)}/messages`, init, false);
 
@@ -189,12 +204,23 @@ export class ApiClient {
       }
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json") && !contentType.includes("ndjson")) {
+      const data = (await response.json()) as MessageExchange;
+      if (onStart && data.userMessage) {
+        onStart(data.userMessage);
+      }
+      if (onChunk && data.assistantMessage?.content) {
+        onChunk(data.assistantMessage.content);
+      }
+      return data;
+    }
+
     const reader = response.body?.getReader();
     if (!reader) throw new Error("No response body");
-
     const decoder = new TextDecoder();
     let buffer = "";
-    let finalExchange: any = null;
+    let finalExchange: MessageExchange | null = null;
 
     try {
       while (true) {
@@ -208,13 +234,27 @@ export class ApiClient {
           buffer = buffer.slice(newlineIndex + 1);
           if (!line) continue;
           
-          const parsed = JSON.parse(line);
-          if (parsed.type === "chunk") {
-            onChunk(parsed.text);
-          } else if (parsed.type === "complete") {
-            finalExchange = parsed.exchange;
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+
+          if (parsed.type === "start" && parsed.userMessage != null) {
+            onStart?.(parsed.userMessage as SessionDetail["messages"][number]);
+          } else if (parsed.type === "chunk" && typeof parsed.text === "string") {
+            onChunk?.(parsed.text);
+          } else if (parsed.type === "complete" && parsed.exchange != null) {
+            finalExchange = parsed.exchange as MessageExchange;
           } else if (parsed.type === "error") {
-            throw new ApiError(500, "INTERNAL_ERROR", parsed.message);
+            const status = typeof parsed.status === "number" ? parsed.status : 500;
+            const code = typeof parsed.code === "string" ? parsed.code : "INTERNAL_ERROR";
+            const message =
+              typeof parsed.message === "string"
+                ? parsed.message
+                : "The reflection could not be completed.";
+            throw new ApiError(status, code, message);
           }
         }
       }

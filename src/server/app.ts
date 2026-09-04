@@ -260,7 +260,6 @@ export async function createApp(dependencies: AppDependencies) {
   });
 
   const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
-    console.log("error object:", error, "isAppError?", error instanceof AppError, "error.name:", error.name);
     const appError = error instanceof AppError ? error : null;
     const status = appError?.status ?? 500;
     const code = appError?.code ?? "INTERNAL_ERROR";
@@ -275,7 +274,8 @@ export async function createApp(dependencies: AppDependencies) {
         route: routeTemplate(request),
         status,
         code,
-        errorType: error instanceof Error ? error.name : "UnknownError", stack: error instanceof Error ? error.stack : undefined,
+        errorType: error instanceof Error ? error.name : "UnknownError", 
+        stack: error instanceof Error ? error.stack : undefined,
       }),
     );
 

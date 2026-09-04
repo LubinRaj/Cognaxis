@@ -248,17 +248,13 @@ export class JournalService {
     if (!latestSession) throw notFound();
     const shouldSummarize =
       latestSession.messageCount - latestSession.summarizedMessageCount >= AUTO_SUMMARY_INTERVAL;
-    let summary: PersonalMemory | null = null;
+    
+    // Auto-summary is decoupled from the interactive response so chat delivery is not delayed.
+    const summary = await this.repository.getSummary(uid, sessionId);
     if (shouldSummarize) {
-      try {
-        summary = await this.summarize(uid, sessionId);
-      } catch {
-        // The exchange is already complete and must remain successful. A summary can be retried
-        // manually, or it will be attempted automatically on the next message.
-        summary = await this.repository.getSummary(uid, sessionId);
-      }
-    } else {
-      summary = await this.repository.getSummary(uid, sessionId);
+      void this.summarize(uid, sessionId).catch((err) => {
+        console.warn("Background auto-summary failed:", err);
+      });
     }
 
     await this.notifyContentChanged(uid, session.createdAt);

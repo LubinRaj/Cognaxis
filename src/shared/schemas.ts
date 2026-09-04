@@ -74,6 +74,74 @@ export type SessionDetail = JournalSession & {
   summary: PersonalMemory | null;
 };
 
+export type MessageExchange = {
+  userMessage: JournalMessage;
+  assistantMessage: JournalMessage;
+  summary: PersonalMemory | null;
+};
+
+// Stream Event Schemas and Types
+export const streamStartEventSchema = z.object({
+  type: z.literal("start"),
+  userMessage: z.object({
+    id: z.string(),
+    role: z.enum(["user", "model"]),
+    content: z.string(),
+    createdAt: z.string(),
+  }),
+});
+
+export const streamChunkEventSchema = z.object({
+  type: z.literal("chunk"),
+  text: z.string(),
+});
+
+export const streamCompleteEventSchema = z.object({
+  type: z.literal("complete"),
+  exchange: z.object({
+    userMessage: z.object({
+      id: z.string(),
+      role: z.enum(["user", "model"]),
+      content: z.string(),
+      createdAt: z.string(),
+    }),
+    assistantMessage: z.object({
+      id: z.string(),
+      role: z.enum(["user", "model"]),
+      content: z.string(),
+      createdAt: z.string(),
+    }),
+    summary: summaryOutputSchema
+      .extend({
+        id: z.string(),
+        sourceSessionId: z.string(),
+        sourceMessageIds: z.array(z.string()),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+      })
+      .nullable(),
+  }),
+});
+
+export const streamErrorEventSchema = z.object({
+  type: z.literal("error"),
+  code: z.string().optional(),
+  message: z.string(),
+});
+
+export const streamEventSchema = z.discriminatedUnion("type", [
+  streamStartEventSchema,
+  streamChunkEventSchema,
+  streamCompleteEventSchema,
+  streamErrorEventSchema,
+]);
+
+export type StreamStartEvent = z.infer<typeof streamStartEventSchema>;
+export type StreamChunkEvent = z.infer<typeof streamChunkEventSchema>;
+export type StreamCompleteEvent = z.infer<typeof streamCompleteEventSchema>;
+export type StreamErrorEvent = z.infer<typeof streamErrorEventSchema>;
+export type StreamEvent = z.infer<typeof streamEventSchema>;
+
 // ---- Cognaxis Extended Types ----
 
 export type ScopeType = "personal" | "organization" | "platform_admin";

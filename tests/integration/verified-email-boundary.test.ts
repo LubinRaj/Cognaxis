@@ -65,6 +65,11 @@ class RecordingModel implements ConversationModel {
     return "A grounded response for the authenticated journal.";
   }
 
+  async *replyStream(_messages: JournalMessage[]): AsyncIterable<string> {
+    this.calls += 1;
+    yield "A grounded response for the authenticated journal.";
+  }
+
   async summarize(): Promise<SummaryOutput> {
     this.calls += 1;
     return {

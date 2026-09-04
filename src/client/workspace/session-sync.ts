@@ -88,7 +88,9 @@ export function applyExchange(
   optimisticId: string,
 ): SessionDetail {
   const messages = [
-    ...detail.messages.filter((message) => message.id !== optimisticId),
+    ...detail.messages.filter(
+      (message) => message.id !== optimisticId && !message.id.startsWith("pending-"),
+    ),
     exchange.userMessage,
     exchange.assistantMessage,
   ];

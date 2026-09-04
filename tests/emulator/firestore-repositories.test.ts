@@ -110,6 +110,9 @@ function insightWriteFor(uid: string, sessionId: string, localDate: string): Ins
 
 const unusedModel: ConversationModel = {
   reply: () => Promise.reject(new Error("model must not be called")),
+  replyStream: async function* () {
+    throw new Error("model must not be called");
+  },
   summarize: () => Promise.reject(new Error("model must not be called")),
 };
 

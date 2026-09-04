@@ -91,12 +91,14 @@ export function createJournalRouter(
       const { content, requestId } = createMessageSchema.parse(request.body);
       
       const abortController = new AbortController();
-      request.on("close", () => abortController.abort());
+      response.on("close", () => {
+        if (!response.writableEnded) {
+          abortController.abort();
+        }
+      });
 
-      response.status(201);
-      response.setHeader("Content-Type", "application/json-lines");
-      response.setHeader("Cache-Control", "no-store, no-transform");
-      response.setHeader("X-Accel-Buffering", "no");
+      const startTime = Date.now();
+      let firstChunkTime: number | null = null;
 
       service
         .streamMessage(
@@ -105,19 +107,47 @@ export function createJournalRouter(
           requestId,
           content,
           (userMessage) => {
+            if (!response.headersSent) {
+              response.status(201);
+              response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+              response.setHeader("Cache-Control", "no-store, no-transform");
+              response.setHeader("X-Accel-Buffering", "no");
+              response.flushHeaders();
+            }
             response.write(JSON.stringify({ type: "start", userMessage }) + "\n");
           },
           (text) => {
+            if (firstChunkTime === null) {
+              firstChunkTime = Date.now() - startTime;
+            }
             response.write(JSON.stringify({ type: "chunk", text }) + "\n");
           },
           abortController.signal,
         )
         .then((exchange) => {
+          console.log(
+            JSON.stringify({
+              severity: "INFO",
+              event: "journal_stream_complete",
+              requestId: request.requestId,
+              durationMs: Date.now() - startTime,
+              firstChunkLatencyMs: firstChunkTime,
+              status: 201,
+            }),
+          );
           response.write(JSON.stringify({ type: "complete", exchange }) + "\n");
           response.end();
         })
         .catch((error) => {
           if (abortController.signal.aborted || (error as Error).name === "AbortError") {
+            console.log(
+              JSON.stringify({
+                severity: "INFO",
+                event: "journal_stream_aborted",
+                requestId: request.requestId,
+                durationMs: Date.now() - startTime,
+              }),
+            );
             response.end();
             return;
           }
@@ -125,18 +155,18 @@ export function createJournalRouter(
             console.error(
               JSON.stringify({
                 severity: "ERROR",
-                requestId: (request as any).requestId,
-                method: request.method,
-                route: request.route?.path,
-                status: 500,
-                code: "INTERNAL_ERROR",
-                errorType: error instanceof Error ? error.name : "UnknownError",
-              })
+                event: "journal_stream_error",
+                requestId: request.requestId,
+                durationMs: Date.now() - startTime,
+                status: error instanceof AppError ? error.status : 500,
+                code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+              }),
             );
             response.write(
               JSON.stringify({
                 type: "error",
-                message: error instanceof AppError ? error.message : "Internal stream error",
+                code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+                message: error instanceof AppError ? error.message : "The reflection could not be completed.",
               }) + "\n",
             );
             response.end();

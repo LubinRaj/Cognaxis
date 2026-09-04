@@ -31,10 +31,13 @@ export function ConversationThread({ messages, pending, onCopyResult }: Conversa
     wasNearBottom.current = distance < NEAR_BOTTOM_PX;
   }, []);
 
+  const lastMessage = messages[messages.length - 1];
+  const lastContentLength = lastMessage?.content?.length ?? 0;
+
   useEffect(() => {
     if (!wasNearBottom.current) return;
     endRef.current?.scrollIntoView?.({ block: "end" });
-  }, [messages.length, pending]);
+  }, [messages.length, pending, lastContentLength]);
 
   return (
     // One intentional scroll container owns the message region.
@@ -48,7 +51,7 @@ export function ConversationThread({ messages, pending, onCopyResult }: Conversa
           <MessageRow key={message.id} message={message} onCopyResult={onCopyResult} />
         ))}
 
-        {pending && (
+        {pending && !messages.some((m) => m.role === "model" && m.id.startsWith("pending-")) && (
           <div className="flex items-center gap-3" data-testid="response-pending">
             <span
               aria-hidden="true"
@@ -78,6 +81,8 @@ function MessageRow({
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
   const isPending = message.id.startsWith("pending-");
+  const isPendingAssistant = !isUser && isPending;
+  const showTypingPlaceholder = isPendingAssistant && message.content === "";
 
   async function copy() {
     try {
@@ -94,6 +99,7 @@ function MessageRow({
     <article
       className={`group flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}
       aria-label={isUser ? "Your message" : "Message from Cognaxis"}
+      data-testid={isPendingAssistant ? "response-pending" : undefined}
     >
       <div className={`flex max-w-[92%] items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
         {!isUser && (
@@ -113,7 +119,13 @@ function MessageRow({
               : "bg-surface-container text-on-surface rounded-tl-md"
           } ${isPending ? "opacity-70" : ""}`}
         >
-          {message.content}
+          {showTypingPlaceholder ? (
+            <span className="text-on-surface-variant text-sm inline-flex items-center gap-2" role="status">
+              Cognaxis is responding…
+            </span>
+          ) : (
+            message.content
+          )}
         </div>
       </div>
 
@@ -122,7 +134,7 @@ function MessageRow({
       >
         <span className="text-on-surface-variant">
           {isUser ? "You" : "Cognaxis"}
-          {isPending && " · Sending…"}
+          {isPending && (isUser ? " · Sending…" : " · Responding…")}
         </span>
         {!isPending && (
           <>

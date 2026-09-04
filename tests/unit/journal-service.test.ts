@@ -8,6 +8,7 @@ import { JournalService } from "../../src/server/services/journal-service.js";
 class RecordingModel implements ConversationModel {
   readonly replyContexts: JournalMessage[][] = [];
   replyCalls = 0;
+  summaryCalls = 0;
   failReply = false;
   failSummary = false;
   onReplyStart: (() => void) | null = null;
@@ -34,6 +35,7 @@ class RecordingModel implements ConversationModel {
   }
 
   async summarize(): Promise<SummaryOutput> {
+    this.summaryCalls += 1;
     if (this.failSummary) throw new Error("SUMMARY_FAILED");
     return {
       title: "Reflection",
@@ -233,10 +235,10 @@ describe("content-change notifications", () => {
 
 describe("journal streaming", () => {
   it("streams chunks and persists correctly", async () => {
-    const { repository, model, service, session } = await fixture();
+    const { repository, service, session } = await fixture();
     const requestId = randomUUID();
-    let userMsg: any = null;
-    let textChunks: string[] = [];
+    let userMsg: JournalMessage | null = null;
+    const textChunks: string[] = [];
     
     const exchange = await service.streamMessage(
       "user_alpha", session.id, requestId, "Streamed thought",
@@ -245,7 +247,7 @@ describe("journal streaming", () => {
     );
     
     expect(userMsg).not.toBeNull();
-    expect(userMsg.content).toBe("Streamed thought");
+    expect((userMsg as JournalMessage | null)?.content).toBe("Streamed thought");
     expect(textChunks.join("")).toBe("reply-1");
     expect(exchange.assistantMessage.content).toBe("reply-1");
     expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(2);
@@ -276,5 +278,51 @@ describe("journal streaming", () => {
     await expect(streamPromise).rejects.toThrow("AbortError");
     // Should not persist
     expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(0);
+  });
+});
+
+describe("session summarization", () => {
+  it("rejects summarization when conversation has fewer than 2 messages", async () => {
+    const { service, session } = await fixture();
+    await expect(service.summarize("user_alpha", session.id)).rejects.toMatchObject({
+      status: 409,
+      code: "NOT_ENOUGH_CONTEXT",
+    });
+  });
+
+  it("rejects cross-user summary access", async () => {
+    const { service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "First thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Second thought");
+
+    await expect(service.summarize("user_bravo", session.id)).rejects.toMatchObject({
+      status: 404,
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("returns cached summary without re-invoking model when message count is unchanged", async () => {
+    const { model, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "First thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Second thought");
+
+    const firstSummary = await service.summarize("user_alpha", session.id);
+    expect(firstSummary.title).toBe("Reflection");
+    expect(model.summaryCalls).toBe(1);
+
+    // Calling summarize again on unchanged session returns existing summary without model call
+    const cachedSummary = await service.summarize("user_alpha", session.id);
+    expect(cachedSummary.id).toBe(firstSummary.id);
+    expect(model.summaryCalls).toBe(1);
+  });
+
+  it("propagates repository persistence failure during summarization", async () => {
+    const { repository, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "First thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Second thought");
+
+    repository.saveSummary = () => Promise.reject(new Error("Firestore write failed"));
+
+    await expect(service.summarize("user_alpha", session.id)).rejects.toThrow("Firestore write failed");
   });
 });

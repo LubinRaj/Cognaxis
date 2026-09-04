@@ -130,8 +130,11 @@ domains and set the exact production `APP_ORIGIN`, then verify with synthetic ac
 
 - [ ] Deploy the versioned composite indexes together with the rules:
       `firebase deploy --only firestore:rules,firestore:indexes --project <project>`.
-- [ ] Confirm in the console that the personalInsights and platformUsers composites are built
-      before exercising the insights list or the admin user directory in production.
+- [ ] Operational Deployment Note: Confirm in the Firebase Console that the `personalInsights`
+      (`periodType` ASCENDING, `periodStart` DESCENDING) and `platformUsers` composite indexes are
+      fully built and active before enabling or exercising the insights dashboard or the admin
+      user directory in production. If the insights index is missing or still building, the API
+      safely returns `503 INDEX_BUILDING` without leaking internal credentials or database paths.
 
 ### 7.2 Google Maps browser key
 

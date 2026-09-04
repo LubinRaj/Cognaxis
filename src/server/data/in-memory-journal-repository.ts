@@ -20,6 +20,14 @@ type UserStore = {
 
 export class InMemoryJournalRepository implements JournalRepository {
   private readonly users = new Map<string, UserStore>();
+  private readonly clock: () => string;
+
+  constructor(clock: () => string | Date = () => new Date().toISOString()) {
+    this.clock = () => {
+      const val = clock();
+      return val instanceof Date ? val.toISOString() : val;
+    };
+  }
 
   private user(uid: string): UserStore {
     const existing = this.users.get(uid);
@@ -35,7 +43,7 @@ export class InMemoryJournalRepository implements JournalRepository {
   }
 
   async createSession(uid: string, title: string): Promise<JournalSession> {
-    const now = new Date().toISOString();
+    const now = this.clock();
     const session: JournalSession = {
       id: randomUUID(),
       title,
@@ -109,7 +117,7 @@ export class InMemoryJournalRepository implements JournalRepository {
       throw new Error("SESSION_LIMIT_REACHED");
     }
 
-    const createdAt = new Date().toISOString();
+    const createdAt = this.clock();
     const userMessage: JournalMessage = {
       id: randomUUID(),
       role: "user",
@@ -139,7 +147,7 @@ export class InMemoryJournalRepository implements JournalRepository {
     const store = this.user(uid);
     const session = store.sessions.get(input.sourceSessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
-    const now = new Date().toISOString();
+    const now = this.clock();
     const existing = store.memories.get(input.sourceSessionId);
     const memory: PersonalMemory = {
       id: `session_${input.sourceSessionId}`,

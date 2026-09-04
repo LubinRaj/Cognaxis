@@ -7,6 +7,7 @@ import {
   type Timestamp,
 } from "firebase-admin/firestore";
 import type { PersonalInsight } from "../../shared/schemas.js";
+import { AppError } from "../errors.js";
 import type {
   GenerationLeaseRequest,
   InsightRepository,
@@ -74,12 +75,31 @@ export class FirestoreInsightRepository implements InsightRepository {
   }
 
   async list(uid: string, periodType: "day" | "week", limit: number): Promise<PersonalInsight[]> {
-    const snapshot = await this.collection(uid)
-      .where("periodType", "==", periodType)
-      .orderBy("periodStart", "desc")
-      .limit(limit)
-      .get();
-    return snapshot.docs.map((document) => mapInsight(document));
+    try {
+      const snapshot = await this.collection(uid)
+        .where("periodType", "==", periodType)
+        .orderBy("periodStart", "desc")
+        .limit(limit)
+        .get();
+      return snapshot.docs.map((document) => mapInsight(document));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isIndexError =
+        (typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          (error as { code: unknown }).code === 9) ||
+        message.toLowerCase().includes("requires an index") ||
+        message.includes("FAILED_PRECONDITION");
+      if (isIndexError) {
+        throw new AppError(
+          503,
+          "INDEX_BUILDING",
+          "The insights index is currently building or missing in Firestore. Please ensure the composite index is deployed.",
+        );
+      }
+      throw error;
+    }
   }
 
   async markStale(uid: string, periodKeys: string[]): Promise<void> {

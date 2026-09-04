@@ -10,7 +10,6 @@ import {
   filterSessions,
   isSessionFull,
   nextSelectionAfterDelete,
-  removeOptimisticMessage,
   removeSession,
   syncSessionFromDetail,
   upsertSession,
@@ -290,19 +289,35 @@ export function useWorkspaceController(
       const exchange = await api.addMessageStream(
         targetId,
         { content, requestId },
-        (chunkText) => {
-          if (!mounted.current) return;
-          setActiveSession((current) => {
-            if (!current || current.id !== targetId) return current;
-            return {
-              ...current,
-              messages: current.messages.map((m) =>
-                m.id === optimisticAssistantId ? { ...m, content: m.content + chunkText } : m
-              ),
-            };
-          });
+        {
+          onStart: (userMessage) => {
+            if (!mounted.current) return;
+            setActiveSession((current) => {
+              if (!current || current.id !== targetId) return current;
+              return {
+                ...current,
+                messages: current.messages.map((m) =>
+                  m.id === optimisticId
+                    ? { ...m, id: userMessage.id, createdAt: userMessage.createdAt }
+                    : m,
+                ),
+              };
+            });
+          },
+          onChunk: (chunkText) => {
+            if (!mounted.current) return;
+            setActiveSession((current) => {
+              if (!current || current.id !== targetId) return current;
+              return {
+                ...current,
+                messages: current.messages.map((m) =>
+                  m.id === optimisticAssistantId ? { ...m, content: m.content + chunkText } : m,
+                ),
+              };
+            });
+          },
         },
-        abortController.signal
+        abortController.signal,
       );
       
       if (!mounted.current) return false;
@@ -329,10 +344,16 @@ export function useWorkspaceController(
       setSendTargetId(null);
       sendAbortController.current = null;
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (!mounted.current) return false;
       
-      if (error.name === "AbortError" || abortController.signal.aborted) {
+      const errorName =
+        error instanceof Error
+          ? error.name
+          : typeof error === "object" && error !== null && "name" in error
+            ? String(error.name)
+            : undefined;
+      if (errorName === "AbortError" || abortController.signal.aborted) {
         setActiveSession((current) =>
           current && current.id === targetId
             ? {

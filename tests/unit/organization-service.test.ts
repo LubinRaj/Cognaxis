@@ -563,6 +563,12 @@ class GatedConversationModel implements ConversationModel {
     return "A gated organization reply.";
   }
 
+  async *replyStream(_messages: JournalMessage[]): AsyncIterable<string> {
+    this.signalStarted();
+    await this.gate;
+    yield "A gated organization reply.";
+  }
+
   async summarize(_messages: JournalMessage[]): Promise<SummaryOutput> {
     this.signalStarted();
     await this.gate;

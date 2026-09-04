@@ -13,6 +13,7 @@ import {
   computeSourceFingerprint,
 } from "../../src/server/services/insight-service.js";
 import { SignalService } from "../../src/server/services/signal-service.js";
+import { DashboardService } from "../../src/server/services/dashboard-service.js";
 import { TestInsightModel } from "../helpers/test-app.js";
 
 const NOW = new Date("2026-09-03T10:00:00.000Z");
@@ -20,7 +21,7 @@ const TODAY_KEY = "day_2026-09-03";
 
 function createContext() {
   const clock = () => NOW;
-  const journal = new InMemoryJournalRepository();
+  const journal = new InMemoryJournalRepository(clock);
   const signals = new InMemorySignalRepository(clock);
   const insights = new InMemoryInsightRepository(clock);
   const preferences = new InMemoryPreferencesRepository(clock);
@@ -502,7 +503,7 @@ class GatedInsightModel implements InsightModel {
 function createLeaseContext() {
   let nowMs = NOW.getTime();
   const clock = () => new Date(nowMs);
-  const journal = new InMemoryJournalRepository();
+  const journal = new InMemoryJournalRepository(clock);
   const signals = new InMemorySignalRepository(clock);
   const insights = new InMemoryInsightRepository(clock);
   const preferences = new InMemoryPreferencesRepository(clock);
@@ -621,5 +622,24 @@ describe("insight generation lease", () => {
     const replay = await context.service.generate("user_alpha", "day", TODAY_KEY, requestId, false);
     expect(replay.outcome).toBe("reused");
     expect(context.model.calls).toBe(1);
+  });
+
+  it("returns an empty list for a user with no insights, and empty dashboard succeeds", async () => {
+    const context = createContext();
+    const insights = await context.service.recent("user_brand_new", "day");
+    expect(insights).toEqual([]);
+
+    const dashboardService = new DashboardService(
+      context.signals,
+      context.journal,
+      context.preferences,
+      () => NOW,
+    );
+    const dashboard = await dashboardService.getDashboard("user_brand_new", 7);
+    expect(dashboard.checkinCount).toBe(0);
+    expect(dashboard.reflectionCount).toBe(0);
+    expect(dashboard.moodAverage).toBeNull();
+    expect(dashboard.energyAverage).toBeNull();
+    expect(dashboard.trend).toHaveLength(7);
   });
 });

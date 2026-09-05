@@ -289,33 +289,17 @@ export function useWorkspaceController(
       const exchange = await api.addMessageStream(
         targetId,
         { content, requestId },
-        {
-          onStart: (userMessage) => {
-            if (!mounted.current) return;
-            setActiveSession((current) => {
-              if (!current || current.id !== targetId) return current;
-              return {
-                ...current,
-                messages: current.messages.map((m) =>
-                  m.id === optimisticId
-                    ? { ...m, id: userMessage.id, createdAt: userMessage.createdAt }
-                    : m,
-                ),
-              };
-            });
-          },
-          onChunk: (chunkText) => {
-            if (!mounted.current) return;
-            setActiveSession((current) => {
-              if (!current || current.id !== targetId) return current;
-              return {
-                ...current,
-                messages: current.messages.map((m) =>
-                  m.id === optimisticAssistantId ? { ...m, content: m.content + chunkText } : m,
-                ),
-              };
-            });
-          },
+        (chunkText) => {
+          if (!mounted.current) return;
+          setActiveSession((current) => {
+            if (!current || current.id !== targetId) return current;
+            return {
+              ...current,
+              messages: current.messages.map((m) =>
+                m.id === optimisticAssistantId ? { ...m, content: m.content + chunkText } : m,
+              ),
+            };
+          });
         },
         abortController.signal,
       );

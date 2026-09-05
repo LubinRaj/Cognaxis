@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The SDK is mocked at module level so every test can inspect exactly what would be sent to the
 // Gemini API without any network access or credential.
 const generateContent = vi.fn();
+const generateContentStream = vi.fn();
 vi.mock("@google/genai", () => ({
   GoogleGenAI: class {
-    models = { generateContent };
+    models = { generateContent, generateContentStream };
   },
 }));
 
@@ -33,6 +34,11 @@ type CapturedRequest = {
 function lastRequest(): CapturedRequest {
   expect(generateContent).toHaveBeenCalled();
   return generateContent.mock.calls[generateContent.mock.calls.length - 1][0] as CapturedRequest;
+}
+
+function lastStreamRequest(): CapturedRequest {
+  expect(generateContentStream).toHaveBeenCalled();
+  return generateContentStream.mock.calls[generateContentStream.mock.calls.length - 1][0] as CapturedRequest;
 }
 
 function expectCurrentApiContract(request: CapturedRequest) {
@@ -63,6 +69,7 @@ const conversation = [
 describe("Gemini request contract", () => {
   beforeEach(() => {
     generateContent.mockReset();
+    generateContentStream.mockReset();
   });
 
   it("sends conversation replies without deprecated sampling parameters", async () => {
@@ -76,6 +83,28 @@ describe("Gemini request contract", () => {
     // Multi-turn context is preserved with alternating roles.
     expect(request.contents.map((turn) => turn.role)).toEqual(["user", "model", "user"]);
     expect(request.config.responseJsonSchema).toBeUndefined();
+  });
+
+  it("uses Gemini's streaming endpoint and yields each model chunk immediately", async () => {
+    generateContentStream.mockResolvedValue(
+      (async function* () {
+        yield { text: "First streamed " };
+        yield { text: "response." };
+      })(),
+    );
+    const model = new GeminiConversationModel(config, secrets);
+    const chunks: string[] = [];
+
+    for await (const chunk of model.replyStream(conversation)) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual(["First streamed ", "response."]);
+    const request = lastStreamRequest();
+    expect(request.model).toBe("gemini-3.7-flash");
+    expect(request.contents.map((turn) => turn.role)).toEqual(["user", "model", "user"]);
+    expect(request.config.httpOptions).toEqual({ timeout: 30_000 });
+    expect(request.config.thinkingConfig).toEqual({ thinkingBudget: 0 });
   });
 
   it("sends summaries with the structured JSON schema and no sampling parameters", async () => {

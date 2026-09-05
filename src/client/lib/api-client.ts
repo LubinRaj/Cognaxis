@@ -3,6 +3,7 @@ import {
   isSessionTerminatingResponse,
   shouldForceTokenRefresh,
 } from "../auth/token-retry-policy.js";
+import { streamEventSchema } from "../../shared/schemas.js";
 import type {
   AdminAuditPage,
   AdminOverview,
@@ -165,27 +166,13 @@ export class ApiClient {
   async addMessageStream(
     sessionId: string,
     input: CreateMessageInput,
-    callbacksOrChunk:
-      | ((text: string) => void)
-      | {
-          onStart?: (userMessage: SessionDetail["messages"][number]) => void;
-          onChunk?: (text: string) => void;
-        },
+    onChunk: (text: string) => void,
     signal?: AbortSignal,
   ): Promise<{
     userMessage: SessionDetail["messages"][number];
     assistantMessage: SessionDetail["messages"][number];
     summary: PersonalMemory | null;
   }> {
-    const onStart =
-      typeof callbacksOrChunk === "object" && callbacksOrChunk !== null
-        ? callbacksOrChunk.onStart
-        : undefined;
-    const onChunk =
-      typeof callbacksOrChunk === "function"
-        ? callbacksOrChunk
-        : callbacksOrChunk?.onChunk;
-
     const init = { method: "POST", body: JSON.stringify(input), signal };
     let response = await this.send(`/sessions/${encodeURIComponent(sessionId)}/messages`, init, false);
 
@@ -205,15 +192,8 @@ export class ApiClient {
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json") && !contentType.includes("ndjson")) {
-      const data = (await response.json()) as MessageExchange;
-      if (onStart && data.userMessage) {
-        onStart(data.userMessage);
-      }
-      if (onChunk && data.assistantMessage?.content) {
-        onChunk(data.assistantMessage.content);
-      }
-      return data;
+    if (!contentType.includes("application/x-ndjson")) {
+      throw new ApiError(502, "INVALID_STREAM", "The response stream could not be started.");
     }
 
     const reader = response.body?.getReader();
@@ -234,27 +214,17 @@ export class ApiClient {
           buffer = buffer.slice(newlineIndex + 1);
           if (!line) continue;
           
-          let parsed: Record<string, unknown>;
-          try {
-            parsed = JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            continue;
+          const parsed = streamEventSchema.safeParse(safeJsonParse(line));
+          if (!parsed.success) {
+            throw new ApiError(502, "INVALID_STREAM", "The response stream was invalid.");
           }
 
-          if (parsed.type === "start" && parsed.userMessage != null) {
-            onStart?.(parsed.userMessage as SessionDetail["messages"][number]);
-          } else if (parsed.type === "chunk" && typeof parsed.text === "string") {
-            onChunk?.(parsed.text);
-          } else if (parsed.type === "complete" && parsed.exchange != null) {
-            finalExchange = parsed.exchange as MessageExchange;
-          } else if (parsed.type === "error") {
-            const status = typeof parsed.status === "number" ? parsed.status : 500;
-            const code = typeof parsed.code === "string" ? parsed.code : "INTERNAL_ERROR";
-            const message =
-              typeof parsed.message === "string"
-                ? parsed.message
-                : "The reflection could not be completed.";
-            throw new ApiError(status, code, message);
+          if (parsed.data.type === "chunk") {
+            onChunk(parsed.data.text);
+          } else if (parsed.data.type === "complete") {
+            finalExchange = parsed.data.exchange;
+          } else if (parsed.data.type === "error") {
+            throw new ApiError(parsed.data.status, parsed.data.code, parsed.data.message);
           }
         }
       }
@@ -263,7 +233,7 @@ export class ApiClient {
     }
     
     if (!finalExchange) {
-      throw new Error("Stream closed before completion");
+      throw new ApiError(502, "INCOMPLETE_STREAM", "The response stream ended before completion.");
     }
     return finalExchange;
   }
@@ -574,6 +544,14 @@ export class ApiClient {
   async adminListAudit(cursor?: string | null): Promise<AdminAuditPage> {
     const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
     return this.request<AdminAuditPage>(`/admin/audit${suffix}`);
+  }
+}
+
+function safeJsonParse(line: string): unknown {
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    return null;
   }
 }
 

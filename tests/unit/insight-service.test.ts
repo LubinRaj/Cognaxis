@@ -626,7 +626,7 @@ describe("insight generation lease", () => {
 
   it("returns an empty list for a user with no insights, and empty dashboard succeeds", async () => {
     const context = createContext();
-    const insights = await context.service.recent("user_brand_new", "day");
+    const insights = await context.service.recent("user_brand_new");
     expect(insights).toEqual([]);
 
     const dashboardService = new DashboardService(

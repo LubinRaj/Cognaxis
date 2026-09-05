@@ -67,6 +67,31 @@ export class JournalService {
     }
   }
 
+  /**
+   * Checks the owner-scoped session before a streaming response is opened. The stream method
+   * repeats this check because a session can still change between preflight and persistence.
+   */
+  async assertSessionWritable(uid: string, sessionId: string): Promise<void> {
+    await this.getActiveSession(uid, sessionId);
+  }
+
+  private async getActiveSession(uid: string, sessionId: string): Promise<JournalSession> {
+    const session = await this.repository.getSession(uid, sessionId);
+    if (!session) throw notFound();
+    if (session.status !== "active") {
+      throw new AppError(409, "SESSION_ARCHIVED", "This session is archived.");
+    }
+    return session;
+  }
+
+  private async getWritableSession(uid: string, sessionId: string): Promise<JournalSession> {
+    const session = await this.getActiveSession(uid, sessionId);
+    if (session.messageCount + 2 > MAX_STORED_MESSAGES) {
+      throw new AppError(409, "SESSION_LIMIT_REACHED", "Start a new session to continue.");
+    }
+    return session;
+  }
+
   async createSession(uid: string, title?: string): Promise<JournalSession> {
     const session = await this.repository.createSession(uid, title ?? "New reflection");
     // A new reflection changes the reflection count of its own period.
@@ -107,14 +132,7 @@ export class JournalService {
       };
     }
 
-    const session = await this.repository.getSession(uid, sessionId);
-    if (!session) throw notFound();
-    if (session.status !== "active") {
-      throw new AppError(409, "SESSION_ARCHIVED", "This session is archived.");
-    }
-    if (session.messageCount + 2 > MAX_STORED_MESSAGES) {
-      throw new AppError(409, "SESSION_LIMIT_REACHED", "Start a new session to continue.");
-    }
+    await this.getWritableSession(uid, sessionId);
 
     const context = await this.repository.listMessages(uid, sessionId, MODEL_CONTEXT_MESSAGES);
     const pendingUserMessage: JournalMessage = {
@@ -178,14 +196,12 @@ export class JournalService {
     sessionId: string,
     requestId: string,
     content: string,
-    onStart: (userMessage: JournalMessage) => void,
     onChunk: (text: string) => void,
     signal?: AbortSignal,
   ): Promise<MessageExchange> {
     const previous = await this.repository.getMessageExchange(uid, sessionId, requestId);
     if (previous) {
       const existing = requireMatchingRequest(previous, content);
-      onStart(existing.userMessage);
       onChunk(existing.assistantMessage.content);
       return {
         userMessage: existing.userMessage,
@@ -194,14 +210,7 @@ export class JournalService {
       };
     }
 
-    const session = await this.repository.getSession(uid, sessionId);
-    if (!session) throw notFound();
-    if (session.status !== "active") {
-      throw new AppError(409, "SESSION_ARCHIVED", "This session is archived.");
-    }
-    if (session.messageCount + 2 > MAX_STORED_MESSAGES) {
-      throw new AppError(409, "SESSION_LIMIT_REACHED", "Start a new session to continue.");
-    }
+    const session = await this.getWritableSession(uid, sessionId);
 
     const context = await this.repository.listMessages(uid, sessionId, MODEL_CONTEXT_MESSAGES);
     const pendingUserMessage: JournalMessage = {
@@ -210,9 +219,6 @@ export class JournalService {
       content,
       createdAt: new Date().toISOString(),
     };
-    
-    onStart(pendingUserMessage);
-
     const stream = this.model.replyStream(
       [...context, pendingUserMessage].slice(-MODEL_CONTEXT_MESSAGES),
       signal,
@@ -252,8 +258,14 @@ export class JournalService {
     // Auto-summary is decoupled from the interactive response so chat delivery is not delayed.
     const summary = await this.repository.getSummary(uid, sessionId);
     if (shouldSummarize) {
-      void this.summarize(uid, sessionId).catch((err) => {
-        console.warn("Background auto-summary failed:", err);
+      void this.summarize(uid, sessionId).catch((error: unknown) => {
+        console.warn(
+          JSON.stringify({
+            severity: "WARNING",
+            event: "auto_summary_failed",
+            code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+          }),
+        );
       });
     }
 

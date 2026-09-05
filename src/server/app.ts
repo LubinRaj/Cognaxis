@@ -274,8 +274,7 @@ export async function createApp(dependencies: AppDependencies) {
         route: routeTemplate(request),
         status,
         code,
-        errorType: error instanceof Error ? error.name : "UnknownError", 
-        stack: error instanceof Error ? error.stack : undefined,
+        errorType: error instanceof Error ? error.name : "UnknownError",
       }),
     );
 

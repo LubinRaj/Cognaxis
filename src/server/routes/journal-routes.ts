@@ -88,58 +88,64 @@ export function createJournalRouter(
     modelLimiter,
     validateBody(createMessageSchema),
     (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
-      const { content, requestId } = createMessageSchema.parse(request.body);
-      
-      const abortController = new AbortController();
-      response.on("close", () => {
-        if (!response.writableEnded) {
-          abortController.abort();
-        }
-      });
+      void (async () => {
+        const { content, requestId } = createMessageSchema.parse(request.body);
+        const targetSessionId = sessionId(request);
 
-      const startTime = Date.now();
-      let firstChunkTime: number | null = null;
+        // Preserve the same owner-scoped 404 boundary as every other private route before
+        // committing a successful streaming response. This is one Firestore document read.
+        await service.assertSessionWritable(request.principal.uid, targetSessionId);
 
-      service
-        .streamMessage(
-          request.principal.uid,
-          sessionId(request),
-          requestId,
-          content,
-          (userMessage) => {
-            if (!response.headersSent) {
-              response.status(201);
-              response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
-              response.setHeader("Cache-Control", "no-store, no-transform");
-              response.setHeader("X-Accel-Buffering", "no");
-              response.flushHeaders();
-            }
-            response.write(JSON.stringify({ type: "start", userMessage }) + "\n");
-          },
-          (text) => {
-            if (firstChunkTime === null) {
-              firstChunkTime = Date.now() - startTime;
-            }
-            response.write(JSON.stringify({ type: "chunk", text }) + "\n");
-          },
-          abortController.signal,
-        )
-        .then((exchange) => {
+        const abortController = new AbortController();
+        const abortIfDisconnected = () => {
+          if (!response.writableEnded) abortController.abort();
+        };
+        request.once("aborted", abortIfDisconnected);
+        response.once("close", abortIfDisconnected);
+
+        const startTime = Date.now();
+        let firstChunkLatencyMs: number | null = null;
+        const writeEvent = (event: object) => {
+          if (!response.writableEnded) response.write(`${JSON.stringify(event)}\n`);
+        };
+
+        response.status(201);
+        response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+        response.setHeader("Cache-Control", "no-store, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.flushHeaders();
+
+        try {
+          writeEvent({ type: "start", requestId });
+
+          const exchange = await service.streamMessage(
+            request.principal.uid,
+            targetSessionId,
+            requestId,
+            content,
+            (text) => {
+              if (firstChunkLatencyMs === null) firstChunkLatencyMs = Date.now() - startTime;
+              writeEvent({ type: "chunk", text });
+            },
+            abortController.signal,
+          );
+
           console.log(
             JSON.stringify({
               severity: "INFO",
               event: "journal_stream_complete",
               requestId: request.requestId,
               durationMs: Date.now() - startTime,
-              firstChunkLatencyMs: firstChunkTime,
+              firstChunkLatencyMs,
               status: 201,
             }),
           );
-          response.write(JSON.stringify({ type: "complete", exchange }) + "\n");
+          writeEvent({ type: "complete", exchange });
           response.end();
-        })
-        .catch((error) => {
-          if (abortController.signal.aborted || (error as Error).name === "AbortError") {
+        } catch (error) {
+          const aborted = abortController.signal.aborted ||
+            (error instanceof Error && error.name === "AbortError");
+          if (aborted) {
             console.log(
               JSON.stringify({
                 severity: "INFO",
@@ -151,29 +157,30 @@ export function createJournalRouter(
             response.end();
             return;
           }
-          if (response.headersSent) {
-            console.error(
-              JSON.stringify({
-                severity: "ERROR",
-                event: "journal_stream_error",
-                requestId: request.requestId,
-                durationMs: Date.now() - startTime,
-                status: error instanceof AppError ? error.status : 500,
-                code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
-              }),
-            );
-            response.write(
-              JSON.stringify({
-                type: "error",
-                code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
-                message: error instanceof AppError ? error.message : "The reflection could not be completed.",
-              }) + "\n",
-            );
-            response.end();
-          } else {
-            next(error);
-          }
-        });
+
+          const appError = error instanceof AppError ? error : null;
+          console.error(
+            JSON.stringify({
+              severity: "ERROR",
+              event: "journal_stream_error",
+              requestId: request.requestId,
+              durationMs: Date.now() - startTime,
+              status: appError?.status ?? 500,
+              code: appError?.code ?? "INTERNAL_ERROR",
+            }),
+          );
+          writeEvent({
+            type: "error",
+            status: appError?.status ?? 500,
+            code: appError?.code ?? "INTERNAL_ERROR",
+            message: appError?.publicMessage ?? "The reflection could not be completed.",
+          });
+          response.end();
+        } finally {
+          request.off("aborted", abortIfDisconnected);
+          response.off("close", abortIfDisconnected);
+        }
+      })().catch(next);
     },
   );
 

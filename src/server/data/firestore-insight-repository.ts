@@ -88,7 +88,7 @@ export class FirestoreInsightRepository implements InsightRepository {
         (typeof error === "object" &&
           error !== null &&
           "code" in error &&
-          (error as { code: unknown }).code === 9) ||
+          error.code === 9) ||
         message.toLowerCase().includes("requires an index") ||
         message.includes("FAILED_PRECONDITION");
       if (isIndexError) {

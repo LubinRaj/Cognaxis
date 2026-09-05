@@ -80,54 +80,56 @@ export type MessageExchange = {
   summary: PersonalMemory | null;
 };
 
-// Stream Event Schemas and Types
-export const streamStartEventSchema = z.object({
-  type: z.literal("start"),
-  userMessage: z.object({
-    id: z.string(),
+const journalMessagePayloadSchema = z
+  .object({
+    id: z.string().min(1),
     role: z.enum(["user", "model"]),
     content: z.string(),
-    createdAt: z.string(),
-  }),
-});
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+const personalMemoryPayloadSchema = summaryOutputSchema
+  .extend({
+    id: z.string().min(1),
+    sourceSessionId: z.string().min(1),
+    sourceMessageIds: z.array(z.string().min(1)),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const messageExchangeSchema = z
+  .object({
+    userMessage: journalMessagePayloadSchema,
+    assistantMessage: journalMessagePayloadSchema,
+    summary: personalMemoryPayloadSchema.nullable(),
+  })
+  .strict();
+
+// The streaming protocol is deliberately small and validated on the client. A malformed event
+// must fail safely instead of being treated as a completed assistant message.
+export const streamStartEventSchema = z.object({
+  type: z.literal("start"),
+  requestId: z.uuid(),
+}).strict();
 
 export const streamChunkEventSchema = z.object({
   type: z.literal("chunk"),
   text: z.string(),
-});
+}).strict();
 
 export const streamCompleteEventSchema = z.object({
   type: z.literal("complete"),
-  exchange: z.object({
-    userMessage: z.object({
-      id: z.string(),
-      role: z.enum(["user", "model"]),
-      content: z.string(),
-      createdAt: z.string(),
-    }),
-    assistantMessage: z.object({
-      id: z.string(),
-      role: z.enum(["user", "model"]),
-      content: z.string(),
-      createdAt: z.string(),
-    }),
-    summary: summaryOutputSchema
-      .extend({
-        id: z.string(),
-        sourceSessionId: z.string(),
-        sourceMessageIds: z.array(z.string()),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-      })
-      .nullable(),
-  }),
-});
+  exchange: messageExchangeSchema,
+}).strict();
 
 export const streamErrorEventSchema = z.object({
   type: z.literal("error"),
-  code: z.string().optional(),
-  message: z.string(),
-});
+  status: z.number().int().min(400).max(599),
+  code: z.string().min(1),
+  message: z.string().min(1).max(300),
+}).strict();
 
 export const streamEventSchema = z.discriminatedUnion("type", [
   streamStartEventSchema,
@@ -657,4 +659,3 @@ export const updatePreferencesSchema = z
   .strict();
 
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
-

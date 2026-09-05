@@ -744,21 +744,29 @@ export function installWorkspaceApi(): WorkspaceApiStub {
         const id = decodeURIComponent(messageMatch[1]);
         const content = (route.body as { content: string }).content;
         const index = stub.details.get(id)?.messages.length ?? 0;
-        return json(201, {
+        const exchange = {
           userMessage: {
             id: `${id}-u${index}`,
-            role: "user",
+            role: "user" as const,
             content,
             createdAt: "2026-09-10T09:00:00.000Z",
           },
           assistantMessage: {
             id: `${id}-a${index}`,
-            role: "model",
+            role: "model" as const,
             content: "A grounded reply from Cognaxis.",
             createdAt: "2026-09-10T09:00:01.000Z",
           },
           summary: null,
-        });
+        };
+        return new Response(
+          [
+            { type: "start", requestId: (route.body as { requestId: string }).requestId },
+            { type: "chunk", text: exchange.assistantMessage.content },
+            { type: "complete", exchange },
+          ].map((event) => `${JSON.stringify(event)}\n`).join(""),
+          { status: 201, headers: { "content-type": "application/x-ndjson; charset=utf-8" } },
+        );
       }
 
       const summaryMatch = /^\/api\/v1\/sessions\/([^/?]+)\/summarize$/.exec(url);

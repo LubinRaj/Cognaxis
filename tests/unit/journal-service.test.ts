@@ -237,17 +237,14 @@ describe("journal streaming", () => {
   it("streams chunks and persists correctly", async () => {
     const { repository, service, session } = await fixture();
     const requestId = randomUUID();
-    let userMsg: JournalMessage | null = null;
     const textChunks: string[] = [];
     
     const exchange = await service.streamMessage(
-      "user_alpha", session.id, requestId, "Streamed thought",
-      (um) => { userMsg = um; },
-      (chunk) => { textChunks.push(chunk); }
+      "user_alpha", session.id, requestId, "Streamed thought", (chunk) => {
+        textChunks.push(chunk);
+      },
     );
     
-    expect(userMsg).not.toBeNull();
-    expect((userMsg as JournalMessage | null)?.content).toBe("Streamed thought");
     expect(textChunks.join("")).toBe("reply-1");
     expect(exchange.assistantMessage.content).toBe("reply-1");
     expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(2);
@@ -265,15 +262,11 @@ describe("journal streaming", () => {
     });
     
     const streamPromise = service.streamMessage(
-      "user_alpha", session.id, requestId, "Will cancel",
-      () => { 
-        // Abort on start
-        abortController.abort(); 
-        releaseReplies(); 
-      },
-      () => {},
+      "user_alpha", session.id, requestId, "Will cancel", () => {},
       abortController.signal
     );
+    abortController.abort();
+    releaseReplies();
     
     await expect(streamPromise).rejects.toThrow("AbortError");
     // Should not persist

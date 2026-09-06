@@ -328,7 +328,7 @@ export class JournalService {
               sourceSessionId: chunk.sourceSessionId,
               sourceMessageIds: chunk.sourceMessageIds,
               captureType: chunk.captureType,
-              text: chunk.text,
+              text: chunk.text.slice(0, MAX_MEMORY_EVIDENCE_TEXT),
             }));
             if (this.model.answerGroundedMemory) {
               const grounded = validateGroundedMemoryAnswer(
@@ -385,9 +385,13 @@ export class JournalService {
     }
     const memories = (
       await Promise.all(
-        sessions.map(async (session) => ({ session, memory: await this.repository.getSummary(uid, session.id) })),
+        sessions.map(async (session) => ({
+          session,
+          memory: await this.repository.getSummary(uid, session.id),
+          messages: await this.repository.listMessages(uid, session.id, MEMORY_MESSAGE_LIMIT),
+        })),
       )
-    ).filter((entry): entry is { session: JournalSession; memory: PersonalMemory } => entry.memory !== null);
+    ).filter((entry): entry is { session: JournalSession; memory: PersonalMemory; messages: JournalMessage[] } => entry.memory !== null);
 
     const terms = memorySearchTerms(query);
     if (terms.length === 0) {
@@ -403,6 +407,7 @@ export class JournalService {
           entry.memory.summary,
           ...entry.memory.themes,
           ...entry.memory.nextSteps,
+          ...entry.messages.map((message) => message.content),
         ].join(" ").toLowerCase();
         const score = memoryTextScore(searchable, terms);
         return { ...entry, score, index };
@@ -503,9 +508,9 @@ export class JournalService {
       };
     }
 
-    const evidence = ranked.map(({ session, memory }) => ({
+    const evidence = ranked.map(({ session, memory, messages }) => ({
       sourceSessionId: session.id,
-      sourceMessageIds: memory.sourceMessageIds,
+      sourceMessageIds: [...new Set([...memory.sourceMessageIds, ...messages.map((message) => message.id)])],
       captureType: session.captureType,
       text: [
         `Date: ${session.updatedAt.slice(0, 10)}`,
@@ -513,7 +518,9 @@ export class JournalService {
         `Summary: ${memory.summary}`,
         `Themes: ${memory.themes.join(", ")}`,
         `Next steps: ${memory.nextSteps.join(", ")}`,
-      ].join("\n"),
+        "Messages:",
+        ...messages.map((message) => `${message.role}: ${message.content}`),
+      ].join("\n").slice(0, MAX_MEMORY_EVIDENCE_TEXT),
     }));
     if (this.model.answerGroundedMemory) {
       const grounded = validateGroundedMemoryAnswer(

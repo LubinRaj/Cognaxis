@@ -601,6 +601,20 @@ describe("personal memory retrieval", () => {
     expect(model.replyCalls).toBe(callsBeforeQuestion);
   });
 
+  it("searches the original reflection messages when the summary omits the answer", async () => {
+    const { model, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I tried three recipes this month: ramen, dal, and focaccia.");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "The focaccia was the one I want to make again.");
+    await service.summarize("user_alpha", session.id);
+
+    const result = await service.askPersonalMemory("user_alpha", "How many recipes have I tried?");
+
+    expect(result.citations).toEqual([
+      expect.objectContaining({ sessionId: session.id, title: "Reflection" }),
+    ]);
+    expect(model.replyContexts.at(-1)?.map((message) => message.content).join("\n")).toContain("three recipes");
+  });
+
   it("answers from recent messages when summary generation has not completed", async () => {
     const { model, service, session } = await fixture();
     await service.addMessage("user_alpha", session.id, randomUUID(), "I decided to protect focus time.");

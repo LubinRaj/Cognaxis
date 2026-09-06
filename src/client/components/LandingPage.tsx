@@ -4,20 +4,20 @@ import { ThemeMenu } from "./ThemeMenu";
 const steps = [
   {
     icon: "edit_document" as const,
-    title: "Capture what matters",
-    body: "Write, speak, or attach a note in one reflection. Start messy and shape it as you go.",
+    title: "Capture the context",
+    body: "Write, speak, or attach what happened, what changed, and what your team should remember.",
     tone: "primary" as const,
   },
   {
     icon: "forum" as const,
-    title: "Reflect with context",
-    body: "Cognaxis asks thoughtful questions and responds using the context you chose to share.",
+    title: "Build shared memory",
+    body: "Keep decisions, updates, blockers, and reasoning together in the space where the work belongs.",
     tone: "secondary" as const,
   },
   {
     icon: "bookmark_added" as const,
-    title: "Keep the thread useful",
-    body: "Create summaries, revisit themes, and follow insights, check-ins, and open loops over time.",
+    title: "Ask what happened",
+    body: "Return to the accumulated history and find the source behind a decision, pattern, or open loop.",
     tone: "primary" as const,
   },
 ];
@@ -47,24 +47,24 @@ const assurances = [
 
 const intelligenceFeatures = [
   {
-    icon: "psychiatry" as const,
-    title: "Think through real life",
-    body: "Use one calm space for work, study, business decisions, relationships, or whatever is on your mind.",
+    icon: "description" as const,
+    title: "Preserve the why",
+    body: "Capture the reasoning behind decisions, not just the final document or task that came out of them.",
   },
   {
     icon: "memory" as const,
-    title: "Build a useful second brain",
-    body: "Revisit past decisions, themes, and next steps with answers grounded in the reflections you have saved.",
+    title: "Find the signal later",
+    body: "Ask about past work and receive answers grounded in the reflections and sources your space is allowed to use.",
   },
   {
     icon: "auto_graph" as const,
-    title: "Notice patterns over time",
-    body: "Optional check-ins, insights, and streaks help you see what is changing without inventing meaning for you.",
+    title: "Keep work moving",
+    body: "Preserve blockers, next steps, and unfinished thinking so important context does not disappear between meetings.",
   },
   {
     icon: "groups" as const,
-    title: "Keep team context together",
-    body: "Share deliberate updates, decisions, and blockers in a team space while personal reflections remain separate.",
+    title: "One system, two scopes",
+    body: "Use Personal Intelligence privately, or build Organizational Intelligence with the people you choose.",
   },
 ];
 
@@ -97,7 +97,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
               href="#intelligence"
               className="text-on-surface-variant hover:text-on-surface text-sm font-medium transition-colors"
             >
-              Intelligence
+              For teams
             </a>
             <a
               href="#privacy"
@@ -121,7 +121,12 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
       </header>
 
       <main>
-        <section className="relative overflow-hidden pt-16 pb-20 lg:pt-24 lg:pb-28">
+        <section className="bg-surface relative isolate overflow-hidden pt-16 pb-20 lg:pt-24 lg:pb-28">
+          <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+            <div className="bg-primary-container/35 absolute -top-40 left-[42%] h-[34rem] w-[34rem] rounded-full blur-3xl" />
+            <div className="bg-secondary-container/30 absolute -right-48 bottom-[-12rem] h-[30rem] w-[30rem] rounded-full blur-3xl" />
+            <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--color-outline-variant)_28%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-outline-variant)_28%,transparent)_1px,transparent_1px)] [background-size:72px_72px] [mask-image:linear-gradient(to_bottom,black,transparent_78%)]" />
+          </div>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="lg:grid lg:grid-cols-12 lg:items-center lg:gap-12">
               <div className="md:mx-auto sm:text-center lg:col-span-6 lg:text-left">
@@ -129,16 +134,16 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <span className="text-primary" aria-hidden="true">
                     <MaterialIcon name="auto_awesome" size={16} />
                   </span>
-                  Personal and shared reflection
+                  Cognitive intelligence for people and teams
                 </p>
                 <h1 className="font-display text-on-surface text-4xl leading-[1.1] font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-[clamp(3rem,5vw,4.5rem)]">
                   Think clearly. <br className="hidden lg:block" />
                   <span className="text-primary">Remember what matters.</span>
                 </h1>
                 <p className="text-on-surface-variant mx-auto mt-6 max-w-2xl text-lg lg:mx-0">
-                  Cognaxis is a cognitive reflection assistant and second brain for everyday life.
-                  Capture thoughts, clarify decisions, and turn experience into useful memory -
-                  privately for yourself or deliberately with your team.
+                  Cognaxis is a secure second brain for your thinking and your team&apos;s context.
+                  Capture decisions, blockers, updates, and reflections as they happen, then return
+                  to the reasoning behind the work when it matters most.
                 </p>
 
                 <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:justify-center lg:justify-start">
@@ -154,7 +159,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                     href="#how-it-works"
                     className="text-primary hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-primary flex min-h-14 w-full items-center justify-center gap-2 rounded-full px-6 text-base font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
                   >
-                    See how it works
+                  See how it works
                   </a>
                 </div>
 
@@ -170,29 +175,37 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                     <MaterialIcon name="dns" size={18} /> Server-side AI
                   </li>
                   <li className="flex items-center gap-1.5">
-                    <MaterialIcon name="lock" size={18} /> Private vault
+                    <MaterialIcon name="groups" size={18} /> Personal and team spaces
                   </li>
                 </ul>
               </div>
 
-              <div className="mt-16 sm:mt-20 lg:col-span-6 lg:mt-0">
-                <div className="border-outline-variant bg-surface-container relative mx-auto w-full max-w-lg rounded-[28px] border p-6 shadow-sm">
+              <div className="relative mt-16 sm:mt-20 lg:col-span-6 lg:mt-0">
+                <div className="border-primary/25 bg-surface-container/70 absolute z-10 -top-7 left-0 hidden items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-xs shadow-lg backdrop-blur-md sm:flex lg:-left-8" aria-hidden="true">
+                  <span className="bg-primary-container text-on-primary-container flex h-7 w-7 items-center justify-center rounded-lg"><MaterialIcon name="memory" size={16} /></span>
+                  <span><span className="text-on-surface block font-medium">Context retained</span><span className="text-on-surface-variant block">Across people and projects</span></span>
+                </div>
+                <div className="border-primary/25 bg-surface-container/90 absolute z-10 -right-2 -bottom-7 hidden items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-xs shadow-lg backdrop-blur-md sm:flex lg:-right-8" aria-hidden="true">
+                  <span className="bg-secondary-container text-on-secondary-container flex h-7 w-7 items-center justify-center rounded-lg"><MaterialIcon name="lock" size={16} /></span>
+                  <span><span className="text-on-surface block font-medium">Private by scope</span><span className="text-on-surface-variant block">Personal and team stay separate</span></span>
+                </div>
+                <div className="from-primary-container/25 via-surface-container to-secondary-container/20 absolute -inset-3 -z-10 rounded-[36px] bg-gradient-to-br blur-xl" aria-hidden="true" />
+                <div className="border-outline-variant bg-surface-container relative z-0 mx-auto w-full max-w-lg rounded-[28px] border p-6 shadow-sm">
                   <div className="space-y-6">
                     <div className="flex justify-end">
                       <div className="bg-primary text-on-primary max-w-[85%] rounded-[24px] rounded-tr-[4px] px-5 py-3.5 text-[15px] leading-relaxed shadow-sm">
-                        I need to make a decision about next quarter without losing sight of what I
-                        learned this quarter.
+                        This quarter, our activation rate rose from 50% to 70% after we simplified
+                        onboarding and added guided setup.
                       </div>
                     </div>
                     <div className="flex justify-start">
                       <div className="bg-surface-container-high text-on-surface max-w-[90%] rounded-[24px] rounded-tl-[4px] px-5 py-4 text-[15px] leading-relaxed shadow-sm">
                         <p>
-                          Let&apos;s slow it down. What did you learn this quarter that should shape the
-                          decision?
+                          That&apos;s meaningful progress: activation improved by 20 percentage points.
                         </p>
                         <p className="text-on-surface-variant mt-2">
-                          We can separate what you know, what is still open, and what you want to
-                          explore next.
+                          What do you think changed in the customer experience, and which parts
+                          should carry into next quarter?
                         </p>
                       </div>
                     </div>
@@ -208,18 +221,18 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                       </div>
                       <div className="border-outline-variant bg-surface rounded-[20px] border p-5 shadow-sm">
                         <h3 className="font-display text-on-surface text-base font-medium">
-                          Next quarter decision
+                          Activation improvement
                         </h3>
                         <p className="text-on-surface-variant mt-1.5 text-sm leading-relaxed">
-                          Captured the lessons from this quarter and the questions to revisit before
-                          choosing the next direction.
+                          Captured the result, likely drivers, and the question to investigate before
+                          planning the next quarter.
                         </p>
                         <div className="mt-4 flex gap-2">
                           <span className="bg-secondary-container text-on-secondary-container rounded-lg px-2.5 py-1 text-xs font-medium">
-                            Decision
+                            Customer insight
                           </span>
                           <span className="bg-primary-container text-on-primary-container rounded-lg px-2.5 py-1 text-xs font-medium">
-                            Open loop
+                            Next-quarter question
                           </span>
                         </div>
                       </div>
@@ -238,7 +251,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                 How it works
               </h2>
               <p className="text-on-surface-variant mt-4 text-lg">
-                Capture, reflect, and return to what matters.
+                Turn everyday work into context your future self and your team can use.
               </p>
             </div>
 
@@ -265,16 +278,52 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
           </div>
         </section>
 
+        <section className="bg-surface py-24">
+          <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:px-8">
+            <div>
+              <p className="text-primary text-sm font-medium">The problem is context loss</p>
+              <h2 className="font-display text-on-surface mt-2 text-3xl font-medium tracking-tight sm:text-4xl">
+                Your company remembers the result. Cognaxis keeps the reasoning.
+              </h2>
+              <p className="text-on-surface-variant mt-5 text-lg leading-relaxed">
+                Important knowledge lives in meeting notes, old chats, handoffs, and people&apos;s
+                heads. When the project changes or someone leaves, the why often disappears with it.
+              </p>
+            </div>
+            <div className="border-outline-variant bg-surface-container-low rounded-[28px] border p-5 sm:p-7">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                <div className="bg-surface rounded-2xl p-5 shadow-sm">
+                  <p className="text-on-surface-variant text-xs font-medium uppercase tracking-[0.14em]">Before</p>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="border-outline-variant text-on-surface-variant flex items-center gap-2 rounded-xl border p-3"><MaterialIcon name="forum" size={17} /> Buried in chat</div>
+                    <div className="border-outline-variant text-on-surface-variant flex items-center gap-2 rounded-xl border p-3"><MaterialIcon name="description" size={17} /> Missing the why</div>
+                    <div className="border-outline-variant text-on-surface-variant flex items-center gap-2 rounded-xl border p-3"><MaterialIcon name="history" size={17} /> Hard to recover</div>
+                  </div>
+                </div>
+                <div className="text-primary flex justify-center py-1 sm:rotate-0" aria-hidden="true"><MaterialIcon name="arrow_forward" size={26} /></div>
+                <div className="bg-primary-container rounded-2xl p-5">
+                  <p className="text-on-primary-container text-xs font-medium uppercase tracking-[0.14em]">After</p>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="bg-surface text-on-surface flex items-center gap-2 rounded-xl p-3"><MaterialIcon name="memory" size={17} className="text-primary" /> Searchable context</div>
+                    <div className="bg-surface text-on-surface flex items-center gap-2 rounded-xl p-3"><MaterialIcon name="check_circle" size={17} className="text-primary" /> Grounded answers</div>
+                    <div className="bg-surface text-on-surface flex items-center gap-2 rounded-xl p-3"><MaterialIcon name="groups" size={17} className="text-primary" /> Shared understanding</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="intelligence" className="bg-surface py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-primary text-sm font-medium">One space for shared thinking</p>
+              <p className="text-primary text-sm font-medium">Personal Intelligence and Organizational Intelligence</p>
               <h2 className="font-display text-on-surface mt-2 text-3xl font-medium tracking-tight sm:text-4xl">
-                A second brain that keeps context
+                One memory layer. The right trust boundary.
               </h2>
               <p className="text-on-surface-variant mt-4 text-lg">
-                Use Cognaxis for personal reflection or the work you share with a team. The same
-                simple flow keeps private and shared context distinct.
+                Think privately, work together, and keep every answer inside the space it came from.
+                Cognaxis gives people and organizations the same simple way to build useful memory.
               </p>
             </div>
 
@@ -295,6 +344,59 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
           </div>
         </section>
 
+        <section className="bg-surface-container-low py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="text-primary text-sm font-medium">From daily updates to team intelligence</p>
+              <h2 className="font-display text-on-surface mt-2 text-3xl font-medium tracking-tight sm:text-4xl">
+                Let the team&apos;s memory compound.
+              </h2>
+              <p className="text-on-surface-variant mt-4 text-lg">
+                Small reflections become a shared record of decisions, risks, and the reasoning that
+                helps the next person move faster.
+              </p>
+            </div>
+
+            <div className="border-outline-variant bg-surface-container mt-14 rounded-[28px] border p-4 shadow-sm sm:p-7">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 px-1">
+                <div className="flex items-center gap-3">
+                  <span className="bg-primary-container text-on-primary-container flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
+                    <MaterialIcon name="groups" size={21} />
+                  </span>
+                  <div>
+                    <p className="text-on-surface text-sm font-medium">Product team memory</p>
+                    <p className="text-on-surface-variant text-xs">12 contributors · shared space</p>
+                  </div>
+                </div>
+                <span className="text-primary flex items-center gap-1 text-xs font-medium"><MaterialIcon name="lock" size={15} /> Scoped access</span>
+              </div>
+              <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="bg-surface-container-low rounded-2xl p-4 sm:p-5">
+                  <p className="text-on-surface-variant mb-4 text-[11px] font-medium uppercase tracking-[0.14em]">Captured context</p>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <div className="border-outline-variant bg-surface rounded-xl border p-4">
+                      <div className="flex items-center gap-2"><MaterialIcon name="checklist" size={17} className="text-primary" /><span className="text-on-surface text-xs font-medium">Release decision</span></div>
+                      <p className="text-on-surface-variant mt-2 text-sm leading-relaxed">Why we chose the smaller migration path and what we still need to validate.</p>
+                    </div>
+                    <div className="border-outline-variant bg-surface rounded-xl border p-4">
+                      <div className="flex items-center gap-2"><MaterialIcon name="warning" size={17} className="text-secondary" /><span className="text-on-surface text-xs font-medium">Open blocker</span></div>
+                      <p className="text-on-surface-variant mt-2 text-sm leading-relaxed">The customer concern that needs an owner before the next release.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-primary-container rounded-2xl p-4 sm:p-5">
+                  <div className="flex items-center gap-2"><MaterialIcon name="search" size={18} className="text-primary" /><p className="text-primary text-xs font-medium">Ask your organization</p></div>
+                  <p className="text-on-primary-container mt-5 text-base font-medium leading-relaxed">Why did we choose the smaller migration path?</p>
+                  <div className="bg-surface-container mt-4 rounded-xl p-4">
+                    <p className="text-on-surface text-sm leading-relaxed">The team chose it to reduce implementation risk while validating the customer workflow first.</p>
+                    <div className="border-outline-variant mt-4 flex items-center gap-2 border-t pt-3 text-xs font-medium text-primary"><MaterialIcon name="content_copy" size={15} /> 3 source reflections</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="privacy" className="border-outline-variant bg-surface border-t py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-2xl text-center">
@@ -302,11 +404,11 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                 <MaterialIcon name="fingerprint" size={48} />
               </span>
               <h2 className="font-display text-on-surface text-3xl font-medium tracking-tight sm:text-4xl">
-                Private when personal. Shared when intentional.
+                Secure by scope. Useful by design.
               </h2>
               <p className="text-on-surface-variant mt-4 text-lg">
-                Choose where each new reflection belongs. Personal reflections stay private, while
-                team context is visible only inside its shared space.
+                Trust is part of the product. Personal memory stays personal, while team context is
+                visible only to authorized people in that organization.
               </p>
             </div>
 
@@ -332,7 +434,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
         <section className="bg-surface-container-low border-outline-variant border-t py-24">
           <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
             <h2 className="font-display text-on-surface text-3xl font-medium tracking-tight sm:text-4xl">
-              Give your thinking somewhere to land.
+              Make the context behind your work impossible to lose.
             </h2>
             <div className="mt-10 flex justify-center">
               <button
@@ -376,7 +478,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
             </a>
           </nav>
           <p className="text-on-surface-variant text-sm">
-            &copy; {new Date().getFullYear()} Cognaxis. Personal and shared reflection.
+            &copy; {new Date().getFullYear()} Cognaxis. A secure memory layer for people and teams.
           </p>
         </div>
       </footer>

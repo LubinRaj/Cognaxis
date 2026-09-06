@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { User } from "firebase/auth";
 import type { UserOrganizationEdge } from "../../../shared/schemas";
 import { useApiClient } from "../../lib/use-api-client";
+import { rememberWorkspaceScope } from "../../workspace/workspace-scope";
 
 type Props = {
   user: User;
@@ -27,9 +28,20 @@ export function WorkspaceScopeSelector({
   const [loaded, setLoaded] = useState(false);
 
   const activeOrganizations = useMemo(
-    () => organizations.filter((edge) => edge.status === "active").sort(newestFirst),
+    () => organizations
+      .filter((edge) => edge.status === "active" && edge.role !== "viewer")
+      .sort(newestFirst),
     [organizations],
   );
+
+  useEffect(() => {
+    if (!loaded || !currentOrganizationId) return;
+    if (activeOrganizations.some((edge) => edge.orgId === currentOrganizationId)) return;
+    // A viewer may still arrive with a remembered or deep-linked team scope. Move that
+    // read-only scope back to the personal journal instead of leaving an unusable selector.
+    rememberWorkspaceScope(user.uid, null);
+    onScopeChange(null);
+  }, [activeOrganizations, currentOrganizationId, loaded, onScopeChange, user.uid]);
 
   useEffect(() => {
     let active = true;

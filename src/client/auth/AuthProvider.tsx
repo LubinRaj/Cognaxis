@@ -163,10 +163,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isSigningOut]);
 
   const reportSessionExpired = useCallback(() => {
-    setGlobalError(null);
-    dispatch({ type: "SESSION_EXPIRED" });
-    setUser(null);
-    if (auth) void signOut(auth).catch(() => undefined);
+    // A failed API token refresh is an operation-level failure, not proof that Firebase has
+    // signed the user out. Keep the authenticated workspace mounted so a transient backend
+    // rejection cannot unexpectedly destroy the user's current flow. The Firebase auth observer
+    // remains the authority for real sign-outs and invalidated sessions.
+    setGlobalError("Your session could not be refreshed. Please refresh the page and try again.");
   }, []);
 
   const reportEmailVerificationRequired = useCallback(() => {

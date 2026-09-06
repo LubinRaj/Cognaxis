@@ -101,7 +101,7 @@ describe("ApiClient bearer attachment and bounded recovery", () => {
     expect(onSessionExpired).not.toHaveBeenCalled();
   });
 
-  it("ends the session after the single retry also fails, with no loop", async () => {
+  it("keeps the session intact after the single retry also fails, with no loop", async () => {
     responses.push(failure(401, "UNAUTHENTICATED"), failure(401, "UNAUTHENTICATED"));
 
     await expect(client().listSessions()).rejects.toBeInstanceOf(ApiError);

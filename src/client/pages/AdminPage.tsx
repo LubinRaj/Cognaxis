@@ -645,10 +645,6 @@ export function AdminPage() {
           <h1 className="font-display text-on-surface mt-1 text-2xl font-medium">
             Operations
           </h1>
-          <p className="text-on-surface-variant mt-1 text-sm">
-            Signed in as {user.email ?? user.uid}. Operational metadata only - private journals
-            are inaccessible.
-          </p>
         </header>
 
         <div className="mt-5">

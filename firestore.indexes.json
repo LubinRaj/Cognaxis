@@ -28,16 +28,8 @@
       "collectionGroup": "platformUsers",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "platformRole", "order": "ASCENDING" },
-        { "fieldPath": "lastSeenAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "platformUsers",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "lastSeenAt", "order": "DESCENDING" }
+        { "fieldPath": "lastSeenAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -45,8 +37,35 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "platformRole", "order": "ASCENDING" },
+        { "fieldPath": "lastSeenAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "platformUsers",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "lastSeenAt", "order": "DESCENDING" }
+        { "fieldPath": "lastSeenAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "platformUsers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "platformRole", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lastSeenAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "platformAdminAudit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {

@@ -44,13 +44,11 @@ describe("platform administration page", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows operational metadata with the non-disclosure statement", async () => {
+  it("shows the administration surface without the metadata notice", async () => {
     await renderAdmin();
 
     expect(await screen.findByText("Platform administration")).toBeInTheDocument();
-    expect(
-      screen.getByText(/private journals are inaccessible/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/private journals are inaccessible/i)).not.toBeInTheDocument();
     expect(await screen.findByText("Application users")).toBeInTheDocument();
     expect(screen.getByText("Product usage, last 7 days")).toBeInTheDocument();
     expect(screen.queryByText(/impersonate|view as user/i)).not.toBeInTheDocument();

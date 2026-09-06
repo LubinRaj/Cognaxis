@@ -15,7 +15,7 @@ vi.mock("../../src/client/lib/firebase", async () => {
 });
 
 const { firebaseAuthMocks, resetHarness, makeUser } = await import("./support/firebase-harness");
-const { renderApp, signalUser, signalNoUser, waitForAuthSurface } = await import(
+const { renderApp, signalUser, signalNoUser } = await import(
   "./support/render-app"
 );
 
@@ -122,46 +122,42 @@ describe("session isolation and recovery", () => {
     expect(await screen.findByRole("heading", { name: /Think clearly/i })).toBeInTheDocument();
   });
 
-  it("shows the session-expired screen after a terminal token failure", async () => {
+  it("keeps the workspace visible after a terminal token failure", async () => {
     handler = () => json(401, { error: { code: "UNAUTHENTICATED", message: "Authentication is required." } });
 
     await renderApp();
     await signalUser(accountFor("user_alpha"));
-    await waitForAuthSurface();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Your account/i }).length).toBeGreaterThan(0));
 
     expect(
-      await screen.findByRole("heading", { name: "Please sign in again" }),
+      await screen.findByText("Your session could not be refreshed. Please refresh the page and try again."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Your session could not be verified. Sign in again to continue securely."),
-    ).toBeInTheDocument();
-    expect(screen.queryAllByText(ALPHA_TITLE)).toHaveLength(0);
-    expect(document.body.textContent).not.toContain(ALPHA_TITLE);
+    expect(screen.queryByRole("heading", { name: "Please sign in again" })).not.toBeInTheDocument();
+    expect(firebaseAuthMocks.signOut).not.toHaveBeenCalled();
   });
 
-  it("keeps the session-expired screen visible while the session is cleared", async () => {
+  it("clears the workspace only when Firebase reports a real sign-out", async () => {
     handler = () => json(401, { error: { code: "UNAUTHENTICATED", message: "Authentication is required." } });
 
     await renderApp();
     await signalUser(accountFor("user_alpha"));
-    await screen.findByRole("heading", { name: "Please sign in again" });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Your account/i }).length).toBeGreaterThan(0));
 
     await signalNoUser();
 
-    expect(screen.getByRole("heading", { name: "Please sign in again" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Think clearly/i })).toBeInTheDocument();
+    expect(screen.queryAllByText(ALPHA_TITLE)).toHaveLength(0);
   });
 
-  it("returns to sign-in from the session-expired screen", async () => {
+  it("does not navigate to sign-in after a terminal API token failure", async () => {
     handler = () => json(401, { error: { code: "UNAUTHENTICATED", message: "Authentication is required." } });
-    const user = userEvent.setup();
 
     await renderApp();
     await signalUser(accountFor("user_alpha"));
-    await screen.findByRole("heading", { name: "Please sign in again" });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /Your account/i }).length).toBeGreaterThan(0));
 
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
-
-    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Please sign in again" })).not.toBeInTheDocument();
+    expect(firebaseAuthMocks.signOut).not.toHaveBeenCalled();
   });
 
   it("sends a verified user back to verification when the server rejects the claim", async () => {

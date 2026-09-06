@@ -77,7 +77,10 @@ describe("platform user boundary", () => {
       { method: "get" as const, path: "/api/v1/admin/overview" },
     ];
 
-    for (const routeCase of routes) {
+    for (const [index, routeCase] of routes.entries()) {
+      if (index === 9) {
+        await new Promise((resolve) => setTimeout(resolve, 1_050));
+      }
       const response = await request(app)
         [routeCase.method](routeCase.path)
         .set("authorization", "Bearer token-user_alpha")

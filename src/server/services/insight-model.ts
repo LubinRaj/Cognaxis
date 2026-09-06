@@ -3,6 +3,8 @@ import type { EmotionLabel, PersonalInsight } from "../../shared/schemas.js";
 import type { AppConfig } from "../config/env.js";
 import { AppError } from "../errors.js";
 import type { SecretProvider } from "./secret-provider.js";
+import { isProviderQuotaError, providerQuotaError } from "./provider-errors.js";
+import { AgentPlatformFallback } from "./agent-platform-fallback.js";
 
 export type InsightEvidence = {
   sessionId: string;
@@ -117,11 +119,14 @@ export function buildInsightPrompt(input: InsightModelInput): string {
 
 export class GeminiInsightModel implements InsightModel {
   private client: GoogleGenAI | undefined;
+  private readonly agentPlatformFallback: AgentPlatformFallback;
 
   constructor(
     private readonly config: AppConfig,
     private readonly secrets: SecretProvider,
-  ) {}
+  ) {
+    this.agentPlatformFallback = new AgentPlatformFallback(config);
+  }
 
   private async getClient(): Promise<GoogleGenAI> {
     if (!this.client) {
@@ -130,19 +135,35 @@ export class GeminiInsightModel implements InsightModel {
     return this.client;
   }
 
+  private runGeneration<T>(
+    operation: string,
+    request: (client: GoogleGenAI, model: string) => Promise<T>,
+  ): Promise<T> {
+    return this.agentPlatformFallback.run(
+      operation,
+      async () => request(await this.getClient(), this.config.GEMINI_MODEL),
+      request,
+    );
+  }
+
   async generateNarrative(input: InsightModelInput): Promise<unknown> {
-    const client = await this.getClient();
-    const response = await client.models.generateContent({
-      model: this.config.GEMINI_MODEL,
-      contents: [{ role: "user", parts: [{ text: buildInsightPrompt(input) }] }],
-      config: {
-        systemInstruction,
-        maxOutputTokens: 1_200,
-        responseMimeType: "application/json",
-        responseJsonSchema: narrativeJsonSchema,
-        httpOptions: { timeout: 20_000 },
-      },
-    });
+    let response;
+    try {
+      response = await this.runGeneration("insight_narrative", (client, model) => client.models.generateContent({
+        model,
+        contents: [{ role: "user", parts: [{ text: buildInsightPrompt(input) }] }],
+        config: {
+          systemInstruction,
+          maxOutputTokens: 1_200,
+          responseMimeType: "application/json",
+          responseJsonSchema: narrativeJsonSchema,
+          httpOptions: { timeout: 20_000 },
+        },
+      }));
+    } catch (error: unknown) {
+      if (isProviderQuotaError(error)) throw providerQuotaError();
+      throw new AppError(502, "MODEL_UNAVAILABLE", "AI could not create this insight right now.");
+    }
 
     try {
       return JSON.parse(response.text ?? "") as unknown;

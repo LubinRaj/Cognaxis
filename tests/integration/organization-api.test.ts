@@ -153,6 +153,37 @@ describe("organization API", () => {
       .expect(404);
   });
 
+  it("keeps reusable team tags isolated to their organization", async () => {
+    const firstOrg = await createOrganization(context, "user_owner");
+    const secondOrg = await createOrganization(context, "user_other_owner");
+    const firstSession = await request(context.app)
+      .post(`/api/v1/organizations/${firstOrg}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Roadmap" })
+      .expect(201);
+    const firstSessionId = z.object({ session: z.object({ id: z.string() }) }).parse(JSON.parse(firstSession.text)).session.id;
+    await request(context.app)
+      .patch(`/api/v1/organizations/${firstOrg}/sessions/${firstSessionId}/tags`)
+      .set("authorization", auth("user_owner"))
+      .send({ tags: ["Roadmap", "DELIVERY"] })
+      .expect(200);
+
+    const tags = await request(context.app)
+      .get(`/api/v1/organizations/${firstOrg}/tags`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+    expect(JSON.parse(tags.text)).toEqual({ tags: ["delivery", "roadmap"] });
+    const foreignTags = await request(context.app)
+      .get(`/api/v1/organizations/${secondOrg}/tags`)
+      .set("authorization", auth("user_other_owner"))
+      .expect(200);
+    expect(JSON.parse(foreignTags.text)).toEqual({ tags: [] });
+    await request(context.app)
+      .get(`/api/v1/organizations/${firstOrg}/tags`)
+      .set("authorization", auth("user_stranger"))
+      .expect(404);
+  });
+
   it("hides foreign organizations behind generic 404s on every route", async () => {
     const orgId = await createOrganization(context, "user_owner");
 
@@ -198,9 +229,6 @@ describe("organization API", () => {
       request(stale.app)
         .patch(`/api/v1/organizations/${orgId}`)
         .send({ name: "Renamed" }),
-      request(stale.app)
-        .post(`/api/v1/organizations/${orgId}/invites`)
-        .send({ role: "member" }),
       request(stale.app).delete(`/api/v1/organizations/${orgId}/members/user_x`),
     ];
     for (const attempt of sensitiveAttempts) {
@@ -208,6 +236,25 @@ describe("organization API", () => {
       expect(response.status).toBe(401);
       expect(response.text).toContain("RECENT_AUTH_REQUIRED");
     }
+
+    // Creating an invitation is a normal collaboration action. An active, verified session is
+    // sufficient; requiring a fresh credential here stranded people in an otherwise working app.
+    await request(stale.app)
+      .post(`/api/v1/organizations/${orgId}/invites`)
+      .set("authorization", auth("user_owner"))
+      .send({ role: "member" })
+      .expect(201);
+
+    const createdInvite = await request(stale.app)
+      .post(`/api/v1/organizations/${orgId}/invites`)
+      .set("authorization", auth("user_owner"))
+      .send({ role: "member" })
+      .expect(201);
+    const createdInviteId = (createdInvite.body as { invite: { inviteId: string } }).invite.inviteId;
+    await request(stale.app)
+      .delete(`/api/v1/organizations/${orgId}/invites/${createdInviteId}`)
+      .set("authorization", auth("user_owner"))
+      .expect(204);
 
     // Reads still work with an older token.
     await request(stale.app)
@@ -314,6 +361,100 @@ describe("organization API", () => {
     expect(secondPersonalContext).not.toContain("Organization-only");
   });
 
+  it("renames an active shared reflection and keeps archived reflections read-only", async () => {
+    const orgId = await createOrganization(context, "user_owner");
+    const created = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Shared draft" })
+      .expect(201);
+    const sessionId = z
+      .object({ session: z.object({ id: z.string() }) })
+      .parse(JSON.parse(created.text)).session.id;
+
+    await request(context.app)
+      .patch(`/api/v1/organizations/${orgId}/sessions/${sessionId}`)
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Renamed shared reflection" })
+      .expect(200)
+      .expect((response) => {
+        expect(JSON.parse(response.text)).toMatchObject({
+          session: { id: sessionId, title: "Renamed shared reflection", status: "active" },
+        });
+      });
+
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/archive`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+
+    await request(context.app)
+      .patch(`/api/v1/organizations/${orgId}/sessions/${sessionId}`)
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Archived rename must fail" })
+      .expect(409)
+      .expect((response) => {
+        expect(JSON.parse(response.text)).toMatchObject({ error: { code: "SESSION_ARCHIVED" } });
+      });
+  });
+
+  it("archives, restores, and permanently deletes a shared reflection", async () => {
+    const orgId = await createOrganization(context, "user_owner");
+    const created = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .send({ title: "Shared archive" })
+      .expect(201);
+    const sessionId = z
+      .object({ session: z.object({ id: z.string() }) })
+      .parse(JSON.parse(created.text)).session.id;
+
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/archive`)
+      .set("authorization", auth("user_owner"))
+      .expect(200)
+      .expect((response) => {
+        expect(JSON.parse(response.text)).toMatchObject({ session: { id: sessionId, status: "archived" } });
+      });
+
+    const active = await request(context.app)
+      .get(`/api/v1/organizations/${orgId}/sessions`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+    expect(JSON.parse(active.text)).toMatchObject({ sessions: [] });
+
+    const archived = await request(context.app)
+      .get(`/api/v1/organizations/${orgId}/sessions?status=archived`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+    expect(JSON.parse(archived.text)).toMatchObject({ sessions: [{ id: sessionId, status: "archived" }] });
+
+    const blocked = await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/messages`)
+      .set("authorization", auth("user_owner"))
+      .send({ requestId: randomUUID(), content: "Should be blocked." })
+      .expect(409);
+    expect(JSON.parse(blocked.text)).toMatchObject({ error: { code: "SESSION_ARCHIVED" } });
+
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/restore`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+    await request(context.app)
+      .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/archive`)
+      .set("authorization", auth("user_owner"))
+      .expect(200);
+    await request(context.app)
+      .delete(`/api/v1/organizations/${orgId}/sessions/${sessionId}`)
+      .set("authorization", auth("user_owner"))
+      .expect(204);
+    await request(context.app)
+      .get(`/api/v1/organizations/${orgId}/sessions?status=archived`)
+      .set("authorization", auth("user_owner"))
+      .expect(200)
+      .expect((response) => expect(JSON.parse(response.text)).toMatchObject({ sessions: [] }));
+  });
+
   it("hides an organization from members of a different organization", async () => {
     const confidentialName = "Alpha Confidential Org";
     const created = await request(context.app)
@@ -373,9 +514,16 @@ describe("organization API", () => {
       .object({ session: z.object({ id: z.string() }) })
       .parse(JSON.parse(sessionResponse.text)).session.id;
 
+    // Keep setup traffic out of the global ten-per-second burst window so this test isolates the
+    // stricter model-operation budget.
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+
     // Twelve model-route requests consume the per-user budget (each fails harmlessly for lack of
     // conversation content); the thirteenth is refused before reaching the handler.
     for (let attempt = 0; attempt < 12; attempt += 1) {
+      if (attempt === 9) {
+        await new Promise((resolve) => setTimeout(resolve, 1_050));
+      }
       await request(context.app)
         .post(`/api/v1/organizations/${orgId}/sessions/${sessionId}/summarize`)
         .set("authorization", auth("user_owner"))
@@ -389,6 +537,7 @@ describe("organization API", () => {
       .expect(429);
     expect(JSON.parse(limited.text)).toMatchObject({ error: { code: "RATE_LIMITED" } });
 
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
     await request(context.app)
       .get(`/api/v1/organizations/${orgId}/sessions`)
       .set("authorization", auth("user_owner"))

@@ -549,7 +549,7 @@ function AuditTab({ api }: { api: ApiClient }) {
               {event.changes.length > 0 && (
                 <p className="text-on-surface mt-1 text-xs">
                   {event.changes
-                    .map((change) => `${change.field}: ${change.from ?? "—"} → ${change.to ?? "—"}`)
+                    .map((change) => `${change.field}: ${change.from ?? "-"} to ${change.to ?? "-"}`)
                     .join("; ")}
                 </p>
               )}
@@ -646,7 +646,7 @@ export function AdminPage() {
             Operations
           </h1>
           <p className="text-on-surface-variant mt-1 text-sm">
-            Signed in as {user.email ?? user.uid}. Operational metadata only — private journals
+            Signed in as {user.email ?? user.uid}. Operational metadata only - private journals
             are inaccessible.
           </p>
         </header>

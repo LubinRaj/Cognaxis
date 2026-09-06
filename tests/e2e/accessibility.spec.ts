@@ -21,7 +21,7 @@ async function expectNoSeriousViolations(page: Page, surface: string): Promise<v
 test.describe("accessibility scans", () => {
   test("public surfaces pass the serious/critical scan", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
     await expectNoSeriousViolations(page, "landing");
 
     await openSignInScreen(page);
@@ -37,7 +37,7 @@ test.describe("accessibility scans", () => {
     await expectNoSeriousViolations(page, "journal workspace");
 
     await page.getByRole("button", { name: "Add reflection check-in" }).click();
-    await expect(page.getByRole("heading", { name: "Reflection check-in" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Private check-in" })).toBeVisible();
     await expectNoSeriousViolations(page, "check-in dialog");
     await page.getByRole("button", { name: "Cancel" }).click();
 
@@ -50,10 +50,10 @@ test.describe("accessibility scans", () => {
     const owner = await createVerifiedUser("axeorg");
     await signIn(page, owner);
     await page.goto("/app/organizations");
-    await page.getByRole("button", { name: "New organization" }).first().click();
+    await page.getByRole("button", { name: "New team" }).first().click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Name", { exact: true }).fill("Accessible Org");
-    await dialog.getByRole("button", { name: "Create organization" }).click();
+    await dialog.getByRole("button", { name: "Create team" }).click();
     await expect(page.getByRole("heading", { name: "Accessible Org" })).toBeVisible();
 
     await page.getByRole("tab", { name: /Members/ }).click();
@@ -88,7 +88,7 @@ test.describe("keyboard interaction", () => {
 
     const trigger = page.getByRole("button", { name: "Add reflection check-in" });
     await trigger.click();
-    await expect(page.getByRole("heading", { name: "Reflection check-in" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Private check-in" })).toBeVisible();
 
     // Focus starts inside the dialog and tabbing stays inside it.
     const inDialog = () =>
@@ -104,7 +104,7 @@ test.describe("keyboard interaction", () => {
 
     // Escape closes the dialog and returns focus to the opening control.
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("heading", { name: "Reflection check-in" })).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Private check-in" })).not.toBeVisible();
     await expect(trigger).toBeFocused();
   });
 

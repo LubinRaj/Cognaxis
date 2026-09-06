@@ -112,13 +112,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     };
 
+    // Listening for normal auth state must never wait on the optional redirect-result lookup.
+    // Browsers can delay that lookup (for example when an identity provider is unavailable or
+    // third-party storage is restricted); delaying the listener would leave every user on the
+    // bootstrap screen even though their ordinary sign-in state is already known.
+    observe();
+
     void getRedirectResult(firebaseAuth)
       .catch((error: unknown) => {
         if (!active) return;
         redirectFailed.current = true;
         setGlobalError(getFirebaseAuthErrorMessage(error));
-      })
-      .finally(observe);
+      });
 
     return () => {
       active = false;

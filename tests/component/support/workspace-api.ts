@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type {
   AuditEvent,
+  AttachmentReference,
   JournalSession,
   MapPoint,
   Organization,
@@ -10,8 +11,10 @@ import type {
   OrganizationSession,
   OrganizationSessionDetail,
   PersonalDashboard,
+  PersonalCheckIn,
   PersonalInsight,
   PersonalMemory,
+  PersonalOpenLoop,
   PersonalSignal,
   PlatformUser,
   SessionDetail,
@@ -31,8 +34,10 @@ export type WorkspaceApiStub = {
   sessions: JournalSession[];
   details: Map<string, SessionDetail>;
   signals: Map<string, PersonalSignal>;
+  checkIns: Map<string, PersonalCheckIn[]>;
   dashboard: PersonalDashboard;
   recentInsights: PersonalInsight[];
+  openLoops: PersonalOpenLoop[];
   mapPoints: MapPoint[];
   organizations: UserOrganizationEdge[];
   orgDetail: OrganizationDetail | null;
@@ -80,6 +85,21 @@ export function makeDashboard(overrides: Partial<PersonalDashboard> = {}): Perso
       { date: "2026-09-03", mood: 4, energy: 3 },
     ],
     hasEnoughForTrend: true,
+    reflectionStreak: {
+      unit: "day",
+      current: 2,
+      longest: 4,
+      activePeriods: 5,
+      periods: [
+        { start: "2026-08-28", end: "2026-08-28", reflectionCount: 0, isCurrent: false },
+        { start: "2026-08-29", end: "2026-08-29", reflectionCount: 1, isCurrent: false },
+        { start: "2026-08-30", end: "2026-08-30", reflectionCount: 1, isCurrent: false },
+        { start: "2026-08-31", end: "2026-08-31", reflectionCount: 1, isCurrent: false },
+        { start: "2026-09-01", end: "2026-09-01", reflectionCount: 1, isCurrent: false },
+        { start: "2026-09-02", end: "2026-09-02", reflectionCount: 1, isCurrent: false },
+        { start: "2026-09-03", end: "2026-09-03", reflectionCount: 1, isCurrent: true },
+      ],
+    },
     ...overrides,
   };
 }
@@ -152,6 +172,8 @@ export function makeOrgSession(
     status: "active",
     messageCount: 0,
     summarizedMessageCount: 0,
+    captureType: "reflection",
+    tags: overrides.tags ?? [],
     createdBy: "user_owner",
     createdAt: "2026-09-01T09:00:00.000Z",
     updatedAt: "2026-09-01T09:00:00.000Z",
@@ -269,12 +291,27 @@ export function makeSignal(
   };
 }
 
+export function makeCheckIn(
+  overrides: Partial<PersonalCheckIn> & { id: string; sourceSessionId: string },
+): PersonalCheckIn {
+  const { id, sourceSessionId, ...rest } = overrides;
+  return {
+    ...makeSignal({ sourceSessionId }),
+    id,
+    anchorMessageId: null,
+    schemaVersion: 2,
+    ...rest,
+  };
+}
+
 export function makeSession(overrides: Partial<JournalSession> & { id: string }): JournalSession {
   return {
     title: `Reflection ${overrides.id}`,
     status: "active",
     messageCount: 0,
     summarizedMessageCount: 0,
+    captureType: "reflection",
+    tags: overrides.tags ?? [],
     createdAt: "2026-09-01T09:00:00.000Z",
     updatedAt: "2026-09-01T09:00:00.000Z",
     ...overrides,
@@ -324,8 +361,10 @@ export function installWorkspaceApi(): WorkspaceApiStub {
     sessions: [],
     details: new Map(),
     signals: new Map(),
+    checkIns: new Map(),
     dashboard: makeDashboard(),
     recentInsights: [],
+    openLoops: [],
     mapPoints: [],
     organizations: [],
     orgDetail: null,
@@ -434,7 +473,20 @@ export function installWorkspaceApi(): WorkspaceApiStub {
       }
 
       if (route.method === "GET" && url.startsWith("/api/v1/sessions?")) {
-        return json(200, { sessions: stub.sessions });
+        const status = new URL(url, "http://localhost").searchParams.get("status") ?? "active";
+        return json(200, {
+          sessions: stub.sessions.filter((session) => (session.status ?? "active") === status),
+        });
+      }
+
+      if (route.method === "GET" && url.startsWith("/api/v1/tags?")) {
+        return json(200, {
+          tags: [...new Set(stub.sessions.flatMap((session) => session.tags ?? []))].sort(),
+        });
+      }
+
+      if (route.method === "GET" && url === "/api/v1/personal/open-loops") {
+        return json(200, { openLoops: stub.openLoops });
       }
 
       if (route.method === "POST" && url === "/api/v1/sessions") {
@@ -489,6 +541,11 @@ export function installWorkspaceApi(): WorkspaceApiStub {
       const orgMatch = /^\/api\/v1\/organizations\/([^/?]+)(.*)$/.exec(url);
       if (orgMatch) {
         const rest = orgMatch[2];
+        if (route.method === "GET" && (rest === "/tags" || rest.startsWith("/tags?"))) {
+          return json(200, {
+            tags: [...new Set(stub.orgSessions.flatMap((session) => session.tags ?? []))].sort(),
+          });
+        }
         if (rest === "" && route.method === "GET") {
           return stub.orgDetail
             ? json(200, stub.orgDetail)
@@ -578,14 +635,30 @@ export function installWorkspaceApi(): WorkspaceApiStub {
             },
           });
         }
-        if (rest === "/sessions" && route.method === "GET") {
-          return json(200, { sessions: stub.orgSessions });
+        if ((rest === "/sessions" || rest.startsWith("/sessions?")) && route.method === "GET") {
+          const status = new URL(`http://localhost${rest}`).searchParams.get("status") ?? "active";
+          return json(200, {
+            sessions: stub.orgSessions.filter((session) => (session.status ?? "active") === status),
+          });
         }
         if (rest === "/sessions" && route.method === "POST") {
           const session = makeOrgSession({ id: `orgs-${stub.orgSessions.length + 1}`, title: "New shared reflection", createdBy: "user_alpha" });
           stub.orgSessions = [session, ...stub.orgSessions];
           stub.orgSessionDetails.set(session.id, makeOrgSessionDetail({ id: session.id, title: session.title, createdBy: "user_alpha" }));
           return json(201, { session });
+        }
+        const orgSessionLifecycleMatch = /^\/sessions\/([^/?]+)\/(archive|restore)$/.exec(rest);
+        if (orgSessionLifecycleMatch && route.method === "POST") {
+          const sessionId = decodeURIComponent(orgSessionLifecycleMatch[1]);
+          const status: OrganizationSession["status"] =
+            orgSessionLifecycleMatch[2] === "archive" ? "archived" : "active";
+          const current = stub.orgSessions.find((session) => session.id === sessionId);
+          if (!current) return failure(404, "NOT_FOUND", "The requested resource was not found.");
+          const updated = { ...current, status };
+          stub.orgSessions = stub.orgSessions.map((session) => session.id === sessionId ? updated : session);
+          const detail = stub.orgSessionDetails.get(sessionId);
+          if (detail) stub.orgSessionDetails.set(sessionId, { ...detail, status });
+          return json(200, { session: updated });
         }
         const orgSessionMatch = /^\/sessions\/([^/?]+)(\/(messages|summarize))?$/.exec(rest);
         if (orgSessionMatch) {
@@ -596,31 +669,60 @@ export function installWorkspaceApi(): WorkspaceApiStub {
               ? json(200, { session: detail })
               : failure(404, "NOT_FOUND", "The requested resource was not found.");
           }
+          if (!orgSessionMatch[3] && route.method === "PATCH") {
+            const body = route.body as { title: string };
+            const current = stub.orgSessionDetails.get(sessionId);
+            if (!current) return failure(404, "NOT_FOUND", "The requested resource was not found.");
+            const updated = { ...current, title: body.title };
+            stub.orgSessionDetails.set(sessionId, updated);
+            stub.orgSessions = stub.orgSessions.map((session) =>
+              session.id === sessionId ? { ...session, title: body.title } : session,
+            );
+            return json(200, { session: updated });
+          }
           if (!orgSessionMatch[3] && route.method === "DELETE") {
             stub.orgSessions = stub.orgSessions.filter((session) => session.id !== sessionId);
             stub.orgSessionDetails.delete(sessionId);
             return new Response(null, { status: 204 });
           }
           if (orgSessionMatch[3] === "messages" && route.method === "POST") {
-            const content = (route.body as { content: string }).content;
+            const body = route.body as { requestId: string; content: string; attachmentIds?: string[] };
+            const content = body.content;
             const index = stub.orgSessionDetails.get(sessionId)?.messages.length ?? 0;
-            return json(201, {
+            const exchange = {
               userMessage: {
                 id: `${sessionId}-u${index}`,
-                role: "user",
+                role: "user" as const,
                 content,
+                ...(body.attachmentIds?.length ? { attachmentIds: body.attachmentIds } : {}),
                 authorUid: "user_alpha",
                 createdAt: "2026-09-03T09:00:00.000Z",
               },
               assistantMessage: {
                 id: `${sessionId}-a${index}`,
-                role: "model",
+                role: "model" as const,
                 content: "A grounded reply for the organization.",
                 authorUid: null,
                 createdAt: "2026-09-03T09:00:01.000Z",
               },
               messageCount: index + 2,
-            });
+            };
+            const current = stub.orgSessionDetails.get(sessionId);
+            if (current) {
+              stub.orgSessionDetails.set(sessionId, {
+                ...current,
+                messages: [...current.messages, exchange.userMessage, exchange.assistantMessage],
+                messageCount: exchange.messageCount,
+              });
+            }
+            return new Response(
+              [
+                { type: "start", requestId: body.requestId },
+                { type: "chunk", text: exchange.assistantMessage.content },
+                { type: "complete", exchange },
+              ].map((event) => `${JSON.stringify(event)}\n`).join(""),
+              { status: 201, headers: { "content-type": "application/x-ndjson; charset=utf-8" } },
+            );
           }
           if (orgSessionMatch[3] === "summarize" && route.method === "POST") {
             return json(200, {
@@ -725,6 +827,32 @@ export function installWorkspaceApi(): WorkspaceApiStub {
         }
       }
 
+      const checkInMatch = /^\/api\/v1\/sessions\/([^/?]+)\/check-ins(?:\/([^/?]+))?$/.exec(url);
+      if (checkInMatch) {
+        const id = decodeURIComponent(checkInMatch[1]);
+        const checkInId = checkInMatch[2] ? decodeURIComponent(checkInMatch[2]) : null;
+        const existing = stub.checkIns.get(id) ?? [];
+        if (!checkInId && route.method === "GET") return json(200, { checkIns: existing });
+        if (!checkInId && route.method === "POST") {
+          const body = route.body as UpsertSignalInput;
+          const created = makeCheckIn({
+            id: `checkin-${existing.length + 1}`,
+            sourceSessionId: id,
+            moodScore: body.moodScore,
+            energyScore: body.energyScore,
+            emotions: body.emotions,
+            note: body.note,
+            location: body.location,
+          });
+          stub.checkIns.set(id, [created, ...existing]);
+          return json(201, { checkIn: created });
+        }
+        if (checkInId && route.method === "DELETE") {
+          stub.checkIns.set(id, existing.filter((checkIn) => checkIn.id !== checkInId));
+          return new Response(null, { status: 204 });
+        }
+      }
+
       const detailMatch = /^\/api\/v1\/sessions\/([^/?]+)$/.exec(url);
       if (detailMatch) {
         const id = decodeURIComponent(detailMatch[1]);
@@ -737,6 +865,46 @@ export function installWorkspaceApi(): WorkspaceApiStub {
         return detail
           ? json(200, { session: detail })
           : failure(404, "NOT_FOUND", "The requested resource was not found.");
+      }
+
+      const sessionLifecycleMatch = /^\/api\/v1\/sessions\/([^/?]+)\/(archive|restore)$/.exec(url);
+      if (sessionLifecycleMatch && route.method === "POST") {
+        const id = decodeURIComponent(sessionLifecycleMatch[1]);
+        const status: JournalSession["status"] =
+          sessionLifecycleMatch[2] === "archive" ? "archived" : "active";
+        const current = stub.sessions.find((session) => session.id === id);
+        if (!current) return failure(404, "NOT_FOUND", "The requested resource was not found.");
+        const updated = { ...current, status };
+        stub.sessions = stub.sessions.map((session) => session.id === id ? updated : session);
+        const detail = stub.details.get(id);
+        if (detail) stub.details.set(id, { ...detail, status });
+        return json(200, { session: updated });
+      }
+
+      const tagMatch = /^\/api\/v1\/sessions\/([^/?]+)\/tags$/.exec(url);
+      if (tagMatch && route.method === "PATCH") {
+        const id = decodeURIComponent(tagMatch[1]);
+        const tags = (route.body as { tags: string[] }).tags;
+        const current = stub.sessions.find((session) => session.id === id);
+        const updated = current ? { ...current, tags } : null;
+        if (updated) {
+          stub.sessions = stub.sessions.map((session) => session.id === id ? updated : session);
+          const detail = stub.details.get(id);
+          if (detail) stub.details.set(id, { ...detail, tags });
+        }
+        return updated ? json(200, { session: updated }) : failure(404, "NOT_FOUND", "The requested resource was not found.");
+      }
+
+      const attachmentUploadMatch = /^\/api\/v1\/sessions\/([^/?]+)\/attachments$/.exec(url);
+      if (attachmentUploadMatch && route.method === "POST") {
+        const attachment: AttachmentReference = {
+          id: `attachment-${stub.routes.length}`,
+          kind: "document",
+          mimeType: "application/pdf",
+          byteSize: 5,
+          createdAt: "2026-09-10T09:00:00.000Z",
+        };
+        return json(201, { attachment });
       }
 
       const messageMatch = /^\/api\/v1\/sessions\/([^/?]+)\/messages$/.exec(url);

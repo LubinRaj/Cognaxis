@@ -22,7 +22,7 @@ describe("configuration-required screen", () => {
     expect(screen.queryByRole("heading", { name: "Welcome back" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Continue with Google/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Start journaling" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start capturing" })).not.toBeInTheDocument();
   });
 
   it("names only the missing variables and never a value", async () => {

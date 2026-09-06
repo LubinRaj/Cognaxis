@@ -15,6 +15,8 @@ const session: SessionDetail = {
   status: "active",
   messageCount: 2,
   summarizedMessageCount: 2,
+  captureType: "decision",
+  tags: [],
   createdAt: "2026-09-01T08:00:00.000Z",
   updatedAt: "2026-09-04T09:00:00.000Z",
   messages: [

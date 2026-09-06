@@ -1,9 +1,13 @@
 import { addDays, enumerateDays, localDateOf } from "../../shared/dates.js";
+import { isoWeekOf, isoWeekStart } from "../../shared/periods.js";
 import type {
   DashboardRangeDays,
   EmotionLabel,
   PersonalDashboard,
   PersonalSignal,
+  ReflectionStreak,
+  ReflectionStreakPeriod,
+  ReflectionStreakUnit,
   ScoreDistribution,
   TrendPoint,
 } from "../../shared/schemas.js";
@@ -35,6 +39,90 @@ function emptyDistribution(): ScoreDistribution {
 function delta(current: number | null, previous: number | null): number | null {
   if (current === null || previous === null) return null;
   return round1(current - previous);
+}
+
+function addMonths(monthStart: string, months: number): string {
+  const [year, month] = monthStart.slice(0, 7).split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 + months, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function monthStartOf(localDate: string): string {
+  return `${localDate.slice(0, 7)}-01`;
+}
+
+function streakUnitFor(rangeDays: DashboardRangeDays): ReflectionStreakUnit {
+  if (rangeDays === 7) return "day";
+  if (rangeDays === 30) return "week";
+  return "month";
+}
+
+function periodStartFor(unit: ReflectionStreakUnit, localDate: string): string {
+  if (unit === "day") return localDate;
+  if (unit === "month") return monthStartOf(localDate);
+  const { isoYear, isoWeek } = isoWeekOf(localDate);
+  return isoWeekStart(isoYear, isoWeek);
+}
+
+function periodEndFor(unit: ReflectionStreakUnit, start: string): string {
+  if (unit === "day") return start;
+  if (unit === "week") return addDays(start, 6);
+  return addDays(addMonths(start, 1), -1);
+}
+
+function nextPeriodStart(unit: ReflectionStreakUnit, start: string): string {
+  if (unit === "day") return addDays(start, 1);
+  if (unit === "week") return addDays(start, 7);
+  return addMonths(start, 1);
+}
+
+function computeReflectionStreak(
+  sessionCreationTimes: string[],
+  timezone: string,
+  from: string,
+  to: string,
+  rangeDays: DashboardRangeDays,
+): ReflectionStreak {
+  const unit = streakUnitFor(rangeDays);
+  const counts = new Map<string, number>();
+  for (const createdAt of sessionCreationTimes) {
+    const localDate = localDateOf(new Date(createdAt), timezone);
+    if (localDate < from || localDate > to) continue;
+    const periodStart = periodStartFor(unit, localDate);
+    counts.set(periodStart, (counts.get(periodStart) ?? 0) + 1);
+  }
+
+  const currentStart = periodStartFor(unit, to);
+  const periods: ReflectionStreakPeriod[] = [];
+  for (let start = periodStartFor(unit, from); start <= currentStart; start = nextPeriodStart(unit, start)) {
+    periods.push({
+      start,
+      end: periodEndFor(unit, start),
+      reflectionCount: counts.get(start) ?? 0,
+      isCurrent: start === currentStart,
+    });
+  }
+
+  let current = 0;
+  for (const period of [...periods].reverse()) {
+    if (period.reflectionCount === 0) break;
+    current += 1;
+  }
+
+  let longest = 0;
+  let run = 0;
+  for (const period of periods) {
+    run = period.reflectionCount > 0 ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+
+  return {
+    unit,
+    current,
+    longest,
+    activePeriods: periods.filter((period) => period.reflectionCount > 0).length,
+    periods,
+  };
 }
 
 // Every number here is a deterministic server-side calculation over the user's own explicit
@@ -93,6 +181,13 @@ export function computeDashboard(input: DashboardInput): PersonalDashboard {
     const localDate = localDateOf(new Date(createdAt), input.timezone);
     return localDate >= from && localDate <= to;
   }).length;
+  const reflectionStreak = computeReflectionStreak(
+    input.sessionCreationTimes,
+    input.timezone,
+    from,
+    to,
+    input.rangeDays,
+  );
 
   const checkinCount = input.signals.length;
   const moodAverage = average(moodScores);
@@ -127,5 +222,6 @@ export function computeDashboard(input: DashboardInput): PersonalDashboard {
     topEmotions,
     trend,
     hasEnoughForTrend: checkinCount >= 3,
+    reflectionStreak,
   };
 }

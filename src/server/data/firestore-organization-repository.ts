@@ -9,6 +9,9 @@ import {
 } from "firebase-admin/firestore";
 import type {
   AuditEvent,
+  OrganizationEodSettings,
+  OrganizationEodSettingsInput,
+  OrganizationEodStatus,
   Organization,
   OrganizationInvite,
   OrganizationMembership,
@@ -48,6 +51,8 @@ type StoredEdge = Omit<UserOrganizationEdge, "joinedAt" | "updatedAt"> & {
 };
 
 type StoredAudit = Omit<AuditEvent, "id" | "createdAt"> & { createdAt: Timestamp };
+type StoredEodSettings = Omit<OrganizationEodSettings, "updatedAt"> & { updatedAt: Timestamp | null };
+type StoredEodStatus = Omit<OrganizationEodStatus, "updatedAt"> & { updatedAt: Timestamp | null };
 
 function iso(value: Timestamp): string {
   return value.toDate().toISOString();
@@ -76,6 +81,20 @@ function toInvite(id: string, stored: StoredInvite): OrganizationInvite {
   };
 }
 
+function toEodSettings(stored: StoredEodSettings): OrganizationEodSettings {
+  return {
+    ...stored,
+    updatedAt: stored.updatedAt ? iso(stored.updatedAt) : null,
+  };
+}
+
+function toEodStatus(stored: StoredEodStatus): OrganizationEodStatus {
+  return {
+    ...stored,
+    updatedAt: stored.updatedAt ? iso(stored.updatedAt) : null,
+  };
+}
+
 export class FirestoreOrganizationRepository implements OrganizationRepository {
   constructor(private readonly firestore: Firestore = getFirestore()) {}
 
@@ -101,6 +120,14 @@ export class FirestoreOrganizationRepository implements OrganizationRepository {
 
   private auditRef(orgId: string): DocumentReference {
     return this.orgRef(orgId).collection("auditEvents").doc();
+  }
+
+  private eodSettingsRef(orgId: string): DocumentReference {
+    return this.orgRef(orgId).collection("settings").doc("eod");
+  }
+
+  private eodStatusRef(orgId: string, uid: string, localDate: string): DocumentReference {
+    return this.orgRef(orgId).collection("eodStatus").doc(`${uid}_${localDate}`);
   }
 
   private edgeData(
@@ -571,5 +598,76 @@ export class FirestoreOrganizationRepository implements OrganizationRepository {
       const stored = document.data() as StoredAudit;
       return { ...stored, id: document.id, createdAt: iso(stored.createdAt) };
     });
+  }
+
+  async getEodSettings(orgId: string): Promise<OrganizationEodSettings | null> {
+    const snapshot = await this.eodSettingsRef(orgId).get();
+    return snapshot.exists ? toEodSettings(snapshot.data() as StoredEodSettings) : null;
+  }
+
+  async setEodSettings(
+    orgId: string,
+    input: OrganizationEodSettingsInput,
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodSettings> {
+    const now = Timestamp.now();
+    const stored: StoredEodSettings = {
+      ...input,
+      updatedBy: actor.uid,
+      updatedAt: now,
+    };
+    await this.firestore.runTransaction(async (transaction) => {
+      await this.requireActor(transaction, orgId, actor);
+      transaction.set(this.eodSettingsRef(orgId), stored);
+    });
+    return toEodSettings(stored);
+  }
+
+  async getEodStatus(orgId: string, uid: string, localDate: string): Promise<OrganizationEodStatus | null> {
+    const snapshot = await this.eodStatusRef(orgId, uid, localDate).get();
+    return snapshot.exists ? toEodStatus(snapshot.data() as StoredEodStatus) : null;
+  }
+
+  async countEodSubmissions(orgId: string, localDate: string): Promise<number> {
+    const snapshot = await this.orgRef(orgId)
+      .collection("eodStatus")
+      .where("localDate", "==", localDate)
+      .get();
+    return snapshot.docs.filter((document) => {
+      const value = document.data() as Partial<StoredEodStatus>;
+      return typeof value.submittedSessionId === "string" && value.submittedSessionId.length > 0;
+    }).length;
+  }
+
+  async setEodStatus(
+    orgId: string,
+    uid: string,
+    localDate: string,
+    changes: { dismissed?: boolean; submittedSessionId?: string | null },
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodStatus> {
+    const reference = this.eodStatusRef(orgId, uid, localDate);
+    const now = Timestamp.now();
+    let result: StoredEodStatus | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      await this.requireActor(transaction, orgId, actor);
+      if (actor.uid !== uid) throw new Error("ACTOR_NOT_AUTHORIZED");
+      const existing = await transaction.get(reference);
+      const previous = existing.exists ? (existing.data() as StoredEodStatus) : null;
+      const next: StoredEodStatus = {
+        uid,
+        localDate,
+        dismissed: changes.dismissed ?? previous?.dismissed ?? false,
+        submittedSessionId:
+          changes.submittedSessionId !== undefined
+            ? changes.submittedSessionId
+            : previous?.submittedSessionId ?? null,
+        updatedAt: now,
+      };
+      transaction.set(reference, next);
+      result = next;
+    });
+    if (!result) throw new Error("EOD_STATUS_WRITE_FAILED");
+    return toEodStatus(result);
   }
 }

@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { JournalMessage, SummaryOutput } from "../../src/shared/schemas.js";
+import { InMemoryMemoryIndexRepository } from "../../src/server/data/in-memory-memory-index-repository.js";
+import { InMemoryAttachmentRepository } from "../../src/server/data/in-memory-attachment-repository.js";
 import { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
-import type { ConversationModel } from "../../src/server/services/conversation-model.js";
+import type { ConversationModel, ModelAttachment, ReflectionClassification, ReflectionClassificationInput } from "../../src/server/services/conversation-model.js";
 import { JournalService } from "../../src/server/services/journal-service.js";
+import { MemoryIndexService } from "../../src/server/services/memory-index-service.js";
 
 class RecordingModel implements ConversationModel {
   readonly replyContexts: JournalMessage[][] = [];
@@ -44,6 +47,35 @@ class RecordingModel implements ConversationModel {
       nextSteps: ["Continue reflecting."],
     };
   }
+
+  async embedText(_text: string): Promise<{ values: number[]; model: string }> {
+    return { values: [1, 0], model: "test-embedding" };
+  }
+}
+
+class ClassifyingModel extends RecordingModel {
+  classification: ReflectionClassification = { title: "", tags: [] };
+  classificationInputs: ReflectionClassificationInput[] = [];
+
+  async classifyReflection(input: ReflectionClassificationInput): Promise<ReflectionClassification> {
+    this.classificationInputs.push(structuredClone(input));
+    return this.classification;
+  }
+}
+
+class AttachmentIndexModel extends RecordingModel {
+  readonly extractedMimeTypes: string[] = [];
+  readonly embeddedTexts: string[] = [];
+
+  async extractAttachmentText(attachment: ModelAttachment): Promise<string> {
+    this.extractedMimeTypes.push(attachment.mimeType);
+    return "The document contains the private launch checklist.";
+  }
+
+  async embedText(text: string): Promise<{ values: number[]; model: string }> {
+    this.embeddedTexts.push(text);
+    return { values: [1, 0], model: "test-embedding" };
+  }
 }
 
 async function fixture() {
@@ -55,6 +87,77 @@ async function fixture() {
 }
 
 describe("journal message consistency", () => {
+  it("uses an AI-generated concise title and one optional normalized tag for a new reflection", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new ClassifyingModel();
+    model.classification = { title: "Launch planning for a new product", tags: ["Work", "Project planning"] };
+    const service = new JournalService(repository, model);
+    const session = await service.createSession("user_alpha");
+
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I need to plan the product launch.");
+
+    await expect(repository.getSession("user_alpha", session.id)).resolves.toMatchObject({
+      title: "Launch planning for a new",
+      tags: ["work"],
+    });
+    await expect(service.listTags("user_alpha")).resolves.toEqual(["work"]);
+    expect(model.classificationInputs[0]).toMatchObject({
+      scope: "personal",
+      purpose: "initial",
+      content: "I need to plan the product launch.",
+    });
+  });
+
+  it("offers previously assigned canonical tags to AI classification", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new ClassifyingModel();
+    model.classification = { title: "Launch planning", tags: ["Work"] };
+    const service = new JournalService(repository, model);
+    const first = await service.createSession("user_alpha");
+    await service.addMessage("user_alpha", first.id, randomUUID(), "Plan the launch.");
+    const second = await service.createSession("user_alpha");
+    await service.addMessage("user_alpha", second.id, randomUUID(), "Continue the work plan.");
+
+    expect(model.classificationInputs[1]?.existingTags).toEqual(["work"]);
+  });
+
+  it("adds one distinct tag after a summary only when it is useful", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new ClassifyingModel();
+    model.classification = { title: "Launch planning", tags: [] };
+    const service = new JournalService(repository, model);
+    const session = await service.createSession("user_alpha");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I need to plan the product launch.");
+    model.classification = { tags: ["goals"] };
+
+    await service.summarize("user_alpha", session.id);
+
+    await expect(repository.getSession("user_alpha", session.id)).resolves.toMatchObject({
+      tags: ["goals"],
+    });
+    expect(model.classificationInputs.at(-1)).toMatchObject({
+      purpose: "summary",
+      scope: "personal",
+      currentTags: [],
+    });
+  });
+
+  it("does not change existing tags when summary tagging finds nothing useful", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new ClassifyingModel();
+    model.classification = { title: "Launch planning", tags: ["work"] };
+    const service = new JournalService(repository, model);
+    const session = await service.createSession("user_alpha");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I need to plan the product launch.");
+    model.classification = { tags: [] };
+
+    await service.summarize("user_alpha", session.id);
+
+    await expect(repository.getSession("user_alpha", session.id)).resolves.toMatchObject({
+      tags: ["work"],
+    });
+  });
+
   it("does not persist an orphaned user message when the model fails", async () => {
     const { repository, model, service, session } = await fixture();
     model.failReply = true;
@@ -272,6 +375,78 @@ describe("journal streaming", () => {
     // Should not persist
     expect(await repository.listMessages("user_alpha", session.id, 120)).toHaveLength(0);
   });
+
+  it("refreshes personal memory after the streamed exchange is persisted", async () => {
+    const repository = new InMemoryJournalRepository();
+    const memoryRepository = new InMemoryMemoryIndexRepository();
+    const model = new RecordingModel();
+    const service = new JournalService(
+      repository,
+      model,
+      [],
+      [],
+      undefined,
+      undefined,
+      new MemoryIndexService(memoryRepository, model),
+    );
+    const session = await service.createSession("user_alpha", "Fresh decision", "decision");
+
+    await service.streamMessage(
+      "user_alpha",
+      session.id,
+      randomUUID(),
+      "I decided to protect focus time.",
+      () => undefined,
+    );
+
+    await vi.waitFor(async () => {
+      const chunks = await memoryRepository.findNearest(
+        { type: "personal", scopeId: "user_alpha" },
+        [1, 0],
+        8,
+      );
+      expect(chunks).toEqual([
+        expect.objectContaining({ sourceSessionId: session.id, captureType: "decision" }),
+      ]);
+    });
+  });
+
+  it("extracts attached document content before indexing the reflection", async () => {
+    const repository = new InMemoryJournalRepository();
+    const attachments = new InMemoryAttachmentRepository();
+    const memoryRepository = new InMemoryMemoryIndexRepository();
+    const model = new AttachmentIndexModel();
+    const service = new JournalService(
+      repository,
+      model,
+      [],
+      [],
+      undefined,
+      attachments,
+      new MemoryIndexService(memoryRepository, model),
+    );
+    const session = await service.createSession("user_alpha", "Launch files");
+    const attachment = await attachments.create(
+      { type: "personal", scopeId: "user_alpha" },
+      session.id,
+      "document",
+      "application/pdf",
+      Buffer.from("private pdf bytes"),
+    );
+
+    await service.addMessage(
+      "user_alpha",
+      session.id,
+      randomUUID(),
+      "Review this attached file.",
+      [attachment.id],
+    );
+
+    await vi.waitFor(() => {
+      expect(model.extractedMimeTypes).toEqual(["application/pdf"]);
+      expect(model.embeddedTexts.some((text) => text.includes("private launch checklist"))).toBe(true);
+    });
+  });
 });
 
 describe("session summarization", () => {
@@ -317,5 +492,142 @@ describe("session summarization", () => {
     repository.saveSummary = () => Promise.reject(new Error("Firestore write failed"));
 
     await expect(service.summarize("user_alpha", session.id)).rejects.toThrow("Firestore write failed");
+  });
+});
+
+describe("personal memory retrieval", () => {
+  it("removes archived reflections from the semantic index and rebuilds them on restore", async () => {
+    const repository = new InMemoryJournalRepository();
+    const memoryRepository = new InMemoryMemoryIndexRepository();
+    const model = new RecordingModel();
+    const service = new JournalService(
+      repository,
+      model,
+      [],
+      [],
+      undefined,
+      undefined,
+      new MemoryIndexService(memoryRepository, model),
+    );
+    const session = await service.createSession("user_alpha", "Indexed thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "A searchable private thought.");
+    await vi.waitFor(async () => {
+      expect(await memoryRepository.findNearest({ type: "personal", scopeId: "user_alpha" }, [1, 0], 8)).toHaveLength(1);
+    });
+
+    await service.archiveSession("user_alpha", session.id);
+    expect(await memoryRepository.findNearest({ type: "personal", scopeId: "user_alpha" }, [1, 0], 8)).toHaveLength(0);
+
+    await service.restoreSession("user_alpha", session.id);
+    await vi.waitFor(async () => {
+      expect(await memoryRepository.findNearest({ type: "personal", scopeId: "user_alpha" }, [1, 0], 8)).toHaveLength(1);
+    });
+  });
+
+  it("builds a bounded index for existing non-empty personal captures", async () => {
+    const repository = new InMemoryJournalRepository();
+    const model = new RecordingModel();
+    const originalService = new JournalService(repository, model);
+    const populated = await originalService.createSession("user_alpha", "Existing capture");
+    await originalService.addMessage("user_alpha", populated.id, randomUUID(), "An existing decision.");
+    await originalService.createSession("user_alpha", "Empty draft");
+
+    const memoryRepository = new InMemoryMemoryIndexRepository();
+    const service = new JournalService(
+      repository,
+      model,
+      [],
+      [],
+      undefined,
+      undefined,
+      new MemoryIndexService(memoryRepository, model),
+    );
+
+    await expect(service.buildMemoryIndex("user_alpha", 20)).resolves.toEqual({
+      examined: 2,
+      indexed: 1,
+      skipped: 1,
+      failed: 0,
+    });
+    await expect(memoryRepository.findNearest(
+      { type: "personal", scopeId: "user_alpha" },
+      [1, 0],
+      8,
+    )).resolves.toEqual([expect.objectContaining({ sourceSessionId: populated.id })]);
+    await expect(memoryRepository.findNearest(
+      { type: "personal", scopeId: "user_bravo" },
+      [1, 0],
+      8,
+    )).resolves.toEqual([]);
+  });
+
+  it("answers from only the verified user's bounded summaries and returns source citations", async () => {
+    const { model, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I decided to protect focus time.");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I will schedule fewer meetings.");
+    await service.summarize("user_alpha", session.id);
+
+    const result = await service.askPersonalMemory("user_alpha", "What needs clarity?");
+
+    expect(result.citations).toEqual([
+      expect.objectContaining({ sessionId: session.id, title: "Reflection" }),
+    ]);
+    expect(model.replyContexts.at(-1)?.at(-1)?.content).toContain("What needs clarity?");
+    expect(model.replyContexts.at(-1)?.at(-2)?.content).toContain("authorizedPersonalSummaries");
+  });
+
+  it("does not expose another user's summaries", async () => {
+    const { service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Private alpha thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Private alpha follow-up");
+    await service.summarize("user_alpha", session.id);
+
+    const result = await service.askPersonalMemory("user_bravo", "What did alpha think?");
+
+    expect(result.citations).toEqual([]);
+  });
+
+  it("does not send unrelated summaries to Gemini or cite them", async () => {
+    const { model, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Private planning note");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Follow up tomorrow");
+    await service.summarize("user_alpha", session.id);
+    const callsBeforeQuestion = model.replyCalls;
+
+    await expect(service.askPersonalMemory("user_alpha", "Where is my passport?")).resolves.toEqual({
+      answer: "I couldn't find enough in your saved captures to answer that reliably.",
+      citations: [],
+    });
+    expect(model.replyCalls).toBe(callsBeforeQuestion);
+  });
+
+  it("answers from recent messages when summary generation has not completed", async () => {
+    const { model, service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I decided to protect focus time.");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "I will schedule fewer meetings.");
+
+    const result = await service.askPersonalMemory("user_alpha", "What have I been deciding lately?");
+
+    expect(result.citations).toEqual([
+      expect.objectContaining({ sessionId: session.id, title: "New personal reflection" }),
+    ]);
+    expect(model.replyContexts.at(-1)?.at(-2)?.content).toContain("authorizedPersonalCaptures");
+    expect(model.replyContexts.at(-1)?.at(-2)?.content).toContain("protect focus time");
+  });
+
+  it("derives bounded open loops only from the owner's stored summary next steps", async () => {
+    const { service, session } = await fixture();
+    await service.addMessage("user_alpha", session.id, randomUUID(), "First thought");
+    await service.addMessage("user_alpha", session.id, randomUUID(), "Second thought");
+    await service.summarize("user_alpha", session.id);
+
+    await expect(service.listOpenLoops("user_alpha")).resolves.toEqual([
+      expect.objectContaining({
+        sessionId: session.id,
+        text: "Continue reflecting.",
+        captureType: "reflection",
+      }),
+    ]);
+    await expect(service.listOpenLoops("user_bravo")).resolves.toEqual([]);
   });
 });

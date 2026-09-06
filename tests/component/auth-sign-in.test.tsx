@@ -36,9 +36,9 @@ describe("sign-in screen", () => {
     await renderSignedOut();
 
     expect(
-      screen.getByRole("heading", { name: /Think freely/i, level: 1 }),
+      screen.getByRole("heading", { name: /Think clearly/i, level: 1 }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Start journaling" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Start capturing" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sign in securely with Google or email.").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Welcome back" })).not.toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("sign-in screen", () => {
     const user = userEvent.setup();
     await renderSignedOut();
 
-    await user.click(screen.getAllByRole("button", { name: "Start journaling" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Start capturing" })[0]);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(
@@ -238,7 +238,7 @@ describe("sign-in screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Back to home" }));
 
-    expect(await screen.findByRole("heading", { name: /Think freely/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Think clearly/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Welcome back" })).not.toBeInTheDocument();
   });
 

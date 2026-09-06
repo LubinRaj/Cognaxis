@@ -22,9 +22,11 @@ function session(overrides: Partial<JournalSession> & { id: string }): JournalSe
     status: "active",
     messageCount: 0,
     summarizedMessageCount: 0,
+    captureType: "reflection",
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
     ...overrides,
+    tags: overrides.tags ?? [],
   };
 }
 

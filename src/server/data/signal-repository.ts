@@ -1,4 +1,4 @@
-import type { PersonalSignal } from "../../shared/schemas.js";
+import type { PersonalCheckIn, PersonalSignal } from "../../shared/schemas.js";
 
 export type SignalWrite = {
   moodScore: PersonalSignal["moodScore"];
@@ -16,6 +16,15 @@ export interface SignalRepository {
   get(uid: string, sessionId: string): Promise<PersonalSignal | null>;
   upsert(uid: string, sessionId: string, write: SignalWrite): Promise<PersonalSignal>;
   delete(uid: string, sessionId: string): Promise<boolean>;
+  createCheckIn(
+    uid: string,
+    sessionId: string,
+    write: SignalWrite,
+    anchorMessageId: string | null,
+  ): Promise<PersonalCheckIn>;
+  listCheckIns(uid: string, sessionId: string, limit: number): Promise<PersonalCheckIn[]>;
+  deleteCheckIn(uid: string, checkInId: string): Promise<boolean>;
+  deleteCheckInsForSession(uid: string, sessionId: string): Promise<void>;
   listRange(
     uid: string,
     fromLocalDate: string,

@@ -6,6 +6,7 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import type {
+  CaptureType,
   OrganizationMessage,
   OrganizationRole,
   OrganizationSession,
@@ -19,12 +20,16 @@ import type {
   SaveOrganizationSummaryInput,
   SessionActorConstraint,
 } from "./organization-repository.js";
+import { isPlaceholderReflectionTitle } from "../../shared/reflection-title.js";
+import { reflectionTagKey, sanitizeReflectionTags } from "../../shared/reflection-tags.js";
 
 type StoredSession = {
   title: string;
   status: "active" | "archived";
   messageCount: number;
   summarizedMessageCount: number;
+  captureType?: CaptureType;
+  tags?: string[];
   createdBy: string;
   scopeType: "organization";
   scopeId: string;
@@ -36,6 +41,7 @@ type StoredSession = {
 type StoredMessage = {
   role: "user" | "model";
   content: string;
+  attachmentIds?: string[];
   sequence: number;
   authorUid: string | null;
   createdBy: string;
@@ -70,6 +76,13 @@ type StoredSummary = {
   updatedAt: Timestamp;
 };
 
+type StoredTag = {
+  value: string;
+  schemaVersion: 1;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
 function iso(value: Timestamp): string {
   return value.toDate().toISOString();
 }
@@ -78,9 +91,12 @@ function toSession(id: string, stored: StoredSession): OrganizationSession {
   return {
     id,
     title: stored.title,
-    status: stored.status,
+    // Older shared reflections have no status field and remain active by default.
+    status: stored.status ?? "active",
     messageCount: stored.messageCount,
     summarizedMessageCount: stored.summarizedMessageCount,
+    captureType: stored.captureType ?? "reflection",
+    tags: Array.isArray(stored.tags) ? [...stored.tags] : [],
     createdBy: stored.createdBy,
     createdAt: iso(stored.createdAt),
     updatedAt: iso(stored.updatedAt),
@@ -92,6 +108,7 @@ function toMessage(id: string, stored: StoredMessage): OrganizationMessage {
     id,
     role: stored.role,
     content: stored.content,
+    ...(stored.attachmentIds && stored.attachmentIds.length > 0 ? { attachmentIds: [...stored.attachmentIds] } : {}),
     authorUid: stored.authorUid,
     createdAt: iso(stored.createdAt),
   };
@@ -123,6 +140,10 @@ export class FirestoreOrganizationWorkspaceRepository
 
   private summaryRef(orgId: string, sessionId: string): DocumentReference {
     return this.firestore.doc(`organizations/${orgId}/workspaceSummaries/session_${sessionId}`);
+  }
+
+  private tagRef(orgId: string, tag: string): DocumentReference {
+    return this.firestore.doc(`organizations/${orgId}/reflectionTags/${reflectionTagKey(tag)}`);
   }
 
   // Re-reads organization status and the actor's membership inside the transaction that persists
@@ -162,6 +183,7 @@ export class FirestoreOrganizationWorkspaceRepository
     orgId: string,
     actor: ActorConstraint,
     title: string,
+    captureType: CaptureType = "reflection",
   ): Promise<OrganizationSession> {
     const reference = this.firestore
       .collection(`organizations/${orgId}/workspaceSessions`)
@@ -172,6 +194,8 @@ export class FirestoreOrganizationWorkspaceRepository
       status: "active",
       messageCount: 0,
       summarizedMessageCount: 0,
+      captureType,
+      tags: [],
       createdBy: actor.uid,
       scopeType: "organization",
       scopeId: orgId,
@@ -186,15 +210,90 @@ export class FirestoreOrganizationWorkspaceRepository
     return toSession(reference.id, data);
   }
 
-  async listSessions(orgId: string, limit: number): Promise<OrganizationSession[]> {
+  async listSessions(orgId: string, limit: number, status: OrganizationSession["status"] = "active"): Promise<OrganizationSession[]> {
     const snapshot = await this.firestore
       .collection(`organizations/${orgId}/workspaceSessions`)
       .orderBy("updatedAt", "desc")
-      .limit(limit)
       .get();
-    return snapshot.docs.map((document) =>
-      toSession(document.id, document.data() as StoredSession),
-    );
+    return snapshot.docs
+      .map((document) => toSession(document.id, document.data() as StoredSession))
+      .filter((session) => session.status === status)
+      .slice(0, limit);
+  }
+
+  async renameSession(
+    orgId: string,
+    sessionId: string,
+    title: string,
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession> {
+    const reference = this.sessionRef(orgId, sessionId);
+    const now = Timestamp.now();
+    let updated: OrganizationSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      await this.requireActor(transaction, orgId, actor);
+      const stored = snapshot.data() as StoredSession;
+      if ((stored.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
+      transaction.update(reference, { title, updatedAt: now });
+      updated = toSession(sessionId, { ...stored, title, updatedAt: now });
+    });
+    if (!updated) throw new Error("SESSION_NOT_FOUND");
+    return updated;
+  }
+
+  async setSessionTags(
+    orgId: string,
+    sessionId: string,
+    tags: string[],
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession> {
+    const reference = this.sessionRef(orgId, sessionId);
+    const now = Timestamp.now();
+    let updated: OrganizationSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      await this.requireActor(transaction, orgId, actor);
+      const stored = snapshot.data() as StoredSession;
+      if ((stored.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
+      transaction.update(reference, { tags: [...tags], updatedAt: now });
+      updated = toSession(sessionId, { ...stored, tags: [...tags], updatedAt: now });
+    });
+    if (!updated) throw new Error("SESSION_NOT_FOUND");
+    return updated;
+  }
+
+  async listTags(orgId: string, limit: number): Promise<string[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const [catalog, sessions] = await Promise.all([
+      this.firestore.collection(`organizations/${orgId}/reflectionTags`).orderBy("value", "asc").limit(safeLimit).get(),
+      this.firestore.collection(`organizations/${orgId}/workspaceSessions`).orderBy("updatedAt", "desc").limit(200).get(),
+    ]);
+    return sanitizeReflectionTags([
+      ...catalog.docs.map((document) => (document.data() as StoredTag).value),
+      ...sessions.docs.flatMap((document) => (document.data() as StoredSession).tags ?? []),
+    ], safeLimit).sort((left, right) => left.localeCompare(right));
+  }
+
+  async registerTags(orgId: string, tags: string[], actor: ActorConstraint): Promise<void> {
+    const values = sanitizeReflectionTags(tags, 50);
+    if (values.length === 0) return;
+    const now = Timestamp.now();
+    await this.firestore.runTransaction(async (transaction) => {
+      await this.requireActor(transaction, orgId, actor);
+      const references = values.map((tag) => this.tagRef(orgId, tag));
+      const snapshots = await Promise.all(references.map((reference) => transaction.get(reference)));
+      for (let index = 0; index < references.length; index += 1) {
+        if (snapshots[index]?.exists) {
+          transaction.update(references[index], { updatedAt: now });
+        } else {
+          const data: StoredTag = { value: values[index], schemaVersion: 1, createdAt: now, updatedAt: now };
+          transaction.create(references[index], data);
+        }
+      }
+    });
   }
 
   async getSession(orgId: string, sessionId: string): Promise<OrganizationSession | null> {
@@ -272,6 +371,7 @@ export class FirestoreOrganizationWorkspaceRepository
       if (exchangeSnapshot.exists) return false;
 
       const storedSession = sessionSnapshot.data() as StoredSession;
+      if ((storedSession.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
       if (storedSession.messageCount + 2 > input.maxMessageCount) {
         throw new Error("SESSION_LIMIT_REACHED");
       }
@@ -279,6 +379,7 @@ export class FirestoreOrganizationWorkspaceRepository
       const userData: StoredMessage = {
         role: "user",
         content: input.userContent,
+        ...(input.attachmentIds && input.attachmentIds.length > 0 ? { attachmentIds: [...input.attachmentIds] } : {}),
         sequence: storedSession.messageCount + 1,
         authorUid: input.authorUid,
         createdBy: input.authorUid,
@@ -311,6 +412,8 @@ export class FirestoreOrganizationWorkspaceRepository
       } satisfies StoredExchange);
       transaction.update(session, {
         messageCount: storedSession.messageCount + 2,
+        ...(input.title && isPlaceholderReflectionTitle(storedSession.title, true) ? { title: input.title } : {}),
+        ...(input.tags && isPlaceholderReflectionTitle(storedSession.title, true) ? { tags: [...input.tags] } : {}),
         updatedAt: now,
       });
 
@@ -361,6 +464,8 @@ export class FirestoreOrganizationWorkspaceRepository
         this.requireActor(transaction, orgId, actor),
       ]);
       if (!sessionSnapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      const storedSession = sessionSnapshot.data() as StoredSession;
+      if ((storedSession.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
       transaction.set(reference, data);
       transaction.update(session, {
         summarizedMessageCount: input.sourceMessageCount,
@@ -375,6 +480,26 @@ export class FirestoreOrganizationWorkspaceRepository
     const snapshot = await this.summaryRef(orgId, sessionId).get();
     if (!snapshot.exists) return null;
     return toSummary(snapshot.data() as StoredSummary);
+  }
+
+  async setSessionStatus(
+    orgId: string,
+    sessionId: string,
+    status: OrganizationSession["status"],
+    actor: SessionActorConstraint,
+  ): Promise<OrganizationSession | null> {
+    const reference = this.sessionRef(orgId, sessionId);
+    const now = Timestamp.now();
+    let updated: OrganizationSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return;
+      const data = snapshot.data() as StoredSession;
+      await this.requireActor(transaction, orgId, actor);
+      transaction.update(reference, { status, updatedAt: now });
+      updated = toSession(sessionId, { ...data, status, updatedAt: now });
+    });
+    return updated;
   }
 
   async deleteSession(

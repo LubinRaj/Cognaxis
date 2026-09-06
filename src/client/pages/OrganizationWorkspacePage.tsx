@@ -60,9 +60,6 @@ function SettingsTab({
         maxLength={300}
         onChange={(event) => setDescription(event.target.value)}
       />
-      <div className="text-on-surface-variant text-xs">
-        Organization ID: <span className="font-mono">{detail.organization.id}</span>
-      </div>
       <Button
         onClick={() => onSave(name, description)}
         loading={saving}
@@ -77,7 +74,8 @@ function SettingsTab({
 
 export function OrganizationWorkspacePage() {
   const user = useOutletContext<User>();
-  const { orgId = "" } = useParams();
+  const { orgId: routeOrganizationId = "" } = useParams();
+  const orgId = routeOrganizationId;
   const navigate = useNavigate();
   const api = useApiClient(user);
 
@@ -214,9 +212,7 @@ export function OrganizationWorkspacePage() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[980px] px-4 py-6 sm:px-6">
         <header>
-          <p className="text-on-surface-variant text-xs font-medium tracking-wide uppercase">
-            Organization workspace
-          </p>
+          <p className="sr-only">Organization workspace</p>
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <h1 className="font-display text-on-surface text-2xl font-medium">
               {detail.organization.name}
@@ -253,13 +249,15 @@ export function OrganizationWorkspacePage() {
             ) : activeTab === "invites" && detail.permissions.canViewInvites ? (
               <OrgInvitesTab api={api} orgId={orgId} permissions={detail.permissions} />
             ) : activeTab === "settings" && detail.permissions.canUpdateSettings ? (
-              <SettingsTab
-                detail={detail}
-                onSave={saveSettings}
-                saving={settingsSaving}
-                errorMessage={settingsError}
-                onDismissError={() => setSettingsError(null)}
-              />
+              <>
+                <SettingsTab
+                  detail={detail}
+                  onSave={saveSettings}
+                  saving={settingsSaving}
+                  errorMessage={settingsError}
+                  onDismissError={() => setSettingsError(null)}
+                />
+              </>
             ) : (
               <OrgConversation
                 api={api}

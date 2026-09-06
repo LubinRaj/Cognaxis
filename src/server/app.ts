@@ -21,6 +21,7 @@ import type { JournalService } from "./services/journal-service.js";
 import type { OrganizationService } from "./services/organization-service.js";
 import type { PlatformAdminService } from "./services/platform-admin-service.js";
 import type { PlatformUserService } from "./services/platform-user-service.js";
+import type { ProfilePhotoProvider } from "./services/profile-photo-service.js";
 import type { SignalService } from "./services/signal-service.js";
 import type { TokenVerifier } from "./types.js";
 
@@ -34,6 +35,7 @@ export type AppDependencies = {
   insightService: InsightService;
   organizationService: OrganizationService;
   platformAdminService: PlatformAdminService;
+  profilePhotoService?: ProfilePhotoProvider;
 };
 
 type RequestWithContext = Request & { requestId?: string };
@@ -47,7 +49,8 @@ function buildContentSecurityPolicy(config: AppConfig) {
     "https://identitytoolkit.googleapis.com",
     "https://securetoken.googleapis.com",
   ];
-  const imgSrc = ["'self'", "data:", "blob:", "https://*.googleusercontent.com"];
+  // Profile images are user-selected HTTPS resources; no script or frame capability is granted.
+  const imgSrc = ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https:"];
   const frameSrc = [
     "https://accounts.google.com",
     config.FIREBASE_AUTH_DOMAIN ? `https://${config.FIREBASE_AUTH_DOMAIN}` : "https://*.firebaseapp.com",
@@ -137,6 +140,7 @@ export async function createApp(dependencies: AppDependencies) {
     insightService,
     organizationService,
     platformAdminService,
+    profilePhotoService,
   } = dependencies;
   const app = express();
   app.disable("x-powered-by");
@@ -153,6 +157,7 @@ export async function createApp(dependencies: AppDependencies) {
     }),
   );
   app.use(
+    "/api",
     cors({
       origin(origin, callback) {
         if (
@@ -183,7 +188,9 @@ export async function createApp(dependencies: AppDependencies) {
     "/api",
     rateLimit({
       windowMs: 15 * 60 * 1_000,
-      limit: 180,
+      // This is an IP-level safety net shared by public and authenticated API traffic. Normal
+      // navigation is governed more accurately by the per-user limiter below.
+      limit: 600,
       standardHeaders: "draft-8",
       legacyHeaders: false,
       message: { error: { code: "RATE_LIMITED", message: "Please try again later." } },
@@ -195,6 +202,12 @@ export async function createApp(dependencies: AppDependencies) {
     response.json({ status: "ok" });
   });
 
+  // Browsers still probe this conventional path even when the document explicitly links the SVG
+  // favicon. Redirecting keeps development and production consoles free of a harmless 404.
+  app.get("/favicon.ico", (_request, response) => {
+    response.redirect(302, "/favicon.svg");
+  });
+
   // One shared pipeline protects every private route: authentication, per-user rate limiting,
   // verified email, active platform status, and non-cacheable responses are all resolved before
   // any feature router runs.
@@ -202,8 +215,23 @@ export async function createApp(dependencies: AppDependencies) {
   privateApi.use(authenticate(verifier));
   privateApi.use(
     rateLimit({
+      windowMs: 1_000,
+      limit: 10,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+      keyGenerator: (request) => request.principal.uid,
+      message: {
+        error: { code: "RATE_LIMITED", message: "Please slow down and try again." },
+      },
+    }),
+  );
+  privateApi.use(
+    rateLimit({
       windowMs: 60 * 1_000,
-      limit: 45,
+      // Page loads legitimately fan out into several private reads. The minute budget supports
+      // normal navigation, while the preceding one-second limiter catches request bursts.
+      // Model, upload, invitation, and admin mutations retain stricter route-specific budgets.
+      limit: 100,
       standardHeaders: "draft-8",
       legacyHeaders: false,
       keyGenerator: (request) => request.principal.uid,
@@ -220,7 +248,7 @@ export async function createApp(dependencies: AppDependencies) {
   });
   privateApi.use(createMeRouter(config));
   privateApi.use(createJournalRouter(journalService, verifier));
-  privateApi.use(createPersonalRouter(config, signalService, dashboardService, insightService));
+  privateApi.use(createPersonalRouter(config, signalService, dashboardService, insightService, journalService, profilePhotoService));
   privateApi.use(createOrganizationRouter(config, organizationService, verifier));
   privateApi.use(createAdminRouter(config, platformAdminService, verifier));
   app.use("/api/v1", privateApi);
@@ -275,6 +303,9 @@ export async function createApp(dependencies: AppDependencies) {
         status,
         code,
         errorType: error instanceof Error ? error.name : "UnknownError",
+        ...(config.NODE_ENV === "development" && error instanceof Error
+          ? { detail: error.message.slice(0, 240) }
+          : {}),
       }),
     );
 

@@ -286,7 +286,7 @@ describe("delete reflection dialog", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Architecture decisions" })).toBeInTheDocument();
   });
 
-  it("hands a recent-authentication rejection to the auth state machine without replaying", async () => {
+  it("keeps the workspace and deletion dialog intact after a recent-authentication challenge", async () => {
     const user = userEvent.setup();
     await renderWorkspace();
     api.handler = (route) =>
@@ -298,11 +298,10 @@ describe("delete reflection dialog", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete reflection" }));
     await user.click(screen.getByRole("button", { name: "Delete reflection" }));
 
-    expect(
-      await screen.findByRole("heading", { name: "Please sign in again" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Please sign in again to continue.");
     expect(api.routes.filter((route) => route.method === "DELETE")).toHaveLength(1);
-    expect(document.body.textContent).not.toContain("Architecture decisions");
+    expect(screen.getByRole("dialog", { name: "Delete this reflection?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Architecture decisions" })).toBeInTheDocument();
   });
 
   it("reports no serious accessibility violations", async () => {
@@ -351,19 +350,35 @@ describe("account and appearance", () => {
     await openAccountMenu(user);
 
     const menu = await screen.findByRole("menu");
-    for (const label of ["System", "Light", "Dark", "Sign out"]) {
+    for (const label of ["Archives", "Theme", "Sign out"]) {
       expect(within(menu).getByRole("menuitem", { name: new RegExp(label) })).toBeInTheDocument();
+    }
+    expect(within(menu).queryByRole("menuitem", { name: "Light" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Dark" })).not.toBeInTheDocument();
+    for (const label of ["System", "Light", "Dark"]) {
+      expect(within(menu).getByRole("menuitemradio", { name: label })).toBeInTheDocument();
     }
     for (const forbidden of ["Reset mock data", "Model", "Notifications", "zero-knowledge"]) {
       expect(menu.textContent).not.toContain(forbidden);
     }
   });
 
+  it("opens archives from the account menu", async () => {
+    const user = userEvent.setup();
+    await import("../../src/client/pages/ArchivesPage");
+    await renderWorkspace();
+    await openAccountMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Archives" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Archives" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/app/archives");
+  });
+
   it("changes the theme immediately and stores only the preference", async () => {
     const user = userEvent.setup();
     await renderWorkspace();
     await openAccountMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Dark/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
 
     await waitFor(() => expect(document.documentElement.getAttribute("data-theme")).toBe("dark"));
     expect(window.localStorage.getItem("cognaxis_theme_preference")).toBe("dark");
@@ -458,7 +473,7 @@ describe("workspace accessibility", () => {
     );
 
     const reached = new Set<string>();
-    for (let index = 0; index < 30; index += 1) {
+    for (let index = 0; index < 31; index += 1) {
       await user.tab();
       const active = document.activeElement as HTMLElement | null;
       if (active) reached.add(active.getAttribute("aria-label") ?? active.textContent ?? "");
@@ -466,6 +481,7 @@ describe("workspace accessibility", () => {
 
     expect([...reached].some((label) => label.includes("New reflection"))).toBe(true);
     expect([...reached].some((label) => label.includes("Search recent reflections"))).toBe(true);
+    expect([...reached].some((label) => label.includes("Reflection filters"))).toBe(true);
     expect([...reached].some((label) => label.includes("Write your reflection"))).toBe(true);
   });
 });

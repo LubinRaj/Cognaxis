@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import type { PersonalSignal, UpsertSignalInput } from "../../shared/schemas";
+import type { PersonalCheckIn, PersonalSignal, UpsertSignalInput } from "../../shared/schemas";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiClient, ApiError } from "../lib/api-client";
 
 export type SignalLoadStatus = "idle" | "loading" | "ready" | "error";
 
 export type SessionSignalController = {
-  signal: PersonalSignal | null;
+  signal: PersonalSignal | PersonalCheckIn | null;
+  checkIns: PersonalCheckIn[];
   status: SignalLoadStatus;
   saving: boolean;
   saveError: string | null;
@@ -28,7 +29,8 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
     [user, reportSessionExpired, reportEmailVerificationRequired],
   );
 
-  const [signal, setSignal] = useState<PersonalSignal | null>(null);
+  const [signal, setSignal] = useState<PersonalSignal | PersonalCheckIn | null>(null);
+  const [checkIns, setCheckIns] = useState<PersonalCheckIn[]>([]);
   const [status, setStatus] = useState<SignalLoadStatus>(sessionId ? "loading" : "idle");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -41,6 +43,7 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
   if (trackedSessionId !== sessionId) {
     setTrackedSessionId(sessionId);
     setSignal(null);
+    setCheckIns([]);
     setStatus(sessionId ? "loading" : "idle");
     setSaveError(null);
   }
@@ -48,11 +51,12 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
   useEffect(() => {
     if (!sessionId) return;
     const requestId = ++requestRef.current;
-    api
-      .getSignal(sessionId)
-      .then((loaded) => {
+    Promise.all([api.getSignal(sessionId), api.listCheckIns(sessionId)])
+      .then(([legacyOrLatest, events]) => {
         if (requestRef.current !== requestId) return;
-        setSignal(loaded);
+        setCheckIns(events);
+        const latest = events[0] ?? null;
+        setSignal(!latest || (legacyOrLatest && legacyOrLatest.updatedAt > latest.capturedAt) ? legacyOrLatest : latest);
         setStatus("ready");
       })
       .catch(() => {
@@ -71,8 +75,9 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
       setSaving(true);
       setSaveError(null);
       try {
-        const outcome = await api.saveSignal(sessionId, input);
-        setSignal(outcome.signal);
+        const checkIn = await api.createCheckIn(sessionId, input);
+        setCheckIns((current) => [checkIn, ...current]);
+        setSignal(checkIn);
         setStatus("ready");
         return true;
       } catch (error) {
@@ -94,7 +99,12 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
     setSaving(true);
     setSaveError(null);
     try {
-      await api.deleteSignal(sessionId);
+      if (signal && "id" in signal && signal.schemaVersion === 2) {
+        await api.deleteCheckIn(sessionId, signal.id);
+        setCheckIns((current) => current.filter((checkIn) => checkIn.id !== signal.id));
+      } else {
+        await api.deleteSignal(sessionId);
+      }
       setSignal(null);
       setStatus("ready");
       return true;
@@ -108,7 +118,7 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
     } finally {
       setSaving(false);
     }
-  }, [api, sessionId]);
+  }, [api, sessionId, signal]);
 
   const dismissSaveError = useCallback(() => setSaveError(null), []);
   const reload = useCallback(() => {
@@ -116,5 +126,5 @@ export function useSessionSignal(user: User, sessionId: string | null): SessionS
     setReloadToken((token) => token + 1);
   }, []);
 
-  return { signal, status, saving, saveError, save, remove, dismissSaveError, reload };
+  return { signal, checkIns, status, saving, saveError, save, remove, dismissSaveError, reload };
 }

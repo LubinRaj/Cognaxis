@@ -1,3 +1,4 @@
+import type { User } from "firebase/auth";
 import type { SessionDetail } from "../../../shared/schemas";
 import {
   SUMMARY_ACTION_LABELS,
@@ -6,6 +7,7 @@ import {
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Menu } from "../ui/Menu";
+import { WorkspaceScopeSelector } from "./WorkspaceScopeSelector";
 
 const SUMMARY_HINTS: Record<SummaryActionState, string | undefined> = {
   "not-enough-messages": "Write at least one exchange before creating a summary.",
@@ -16,6 +18,9 @@ const SUMMARY_HINTS: Record<SummaryActionState, string | undefined> = {
 };
 
 type WorkspaceAppBarProps = {
+  user: User;
+  currentOrganizationId: string | null;
+  onScopeChange: (organizationId: string | null) => void;
   session: SessionDetail | null;
   summaryState: SummaryActionState;
   messagePending: boolean;
@@ -26,10 +31,14 @@ type WorkspaceAppBarProps = {
   onSummary: () => void;
   onCheckIn: () => void;
   onExport: () => void;
+  onArchive?: () => void;
   onDelete: () => void;
 };
 
 export function WorkspaceAppBar({
+  user,
+  currentOrganizationId,
+  onScopeChange,
   session,
   summaryState,
   messagePending,
@@ -40,15 +49,19 @@ export function WorkspaceAppBar({
   onSummary,
   onCheckIn,
   onExport,
+  onArchive,
   onDelete,
 }: WorkspaceAppBarProps) {
-  const summaryDisabled = summaryState === "not-enough-messages" || summaryBlocked;
+  const archivedSummaryBlocked = session?.status === "archived" && summaryState !== "current";
+  const summaryDisabled = summaryState === "not-enough-messages" || summaryBlocked || archivedSummaryBlocked;
   const hint = summaryBlocked
     ? "Another reflection summary is still being created."
+    : archivedSummaryBlocked
+      ? "Restore this reflection to create or update its summary."
     : SUMMARY_HINTS[summaryState];
 
   return (
-    <header className="border-outline-variant bg-surface/95 sticky top-0 z-20 flex min-h-16 items-center gap-2 border-b px-3 backdrop-blur-md sm:px-5">
+    <header className="border-outline-variant bg-surface/95 sticky top-0 z-20 flex min-h-14 items-center gap-1 border-b px-2 backdrop-blur-md sm:min-h-16 sm:gap-2 sm:px-5">
       <IconButton
         icon="menu"
         label="Open reflection history"
@@ -56,22 +69,19 @@ export function WorkspaceAppBar({
         className="lg:hidden"
       />
 
-      <div className="min-w-0 flex-1">
-        <h1 className="text-on-surface truncate text-base font-medium sm:text-lg">
-          {session?.title ?? "Your private journal"}
+      <div className="min-w-0 flex-none w-[min(34vw,9rem)] sm:flex-1 sm:w-auto">
+        <h1 className="sr-only">
+          {session?.title ?? "Your personal space"}
         </h1>
-        {session && (
-          <p className="text-on-surface-variant hidden truncate text-xs sm:block">
-            Updated{" "}
-            {new Date(session.updatedAt).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}
-          </p>
-        )}
+        <WorkspaceScopeSelector
+          user={user}
+          currentOrganizationId={currentOrganizationId}
+          onScopeChange={onScopeChange}
+        />
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+      {session && (
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-2">
         <IconButton
           icon="mood"
           label={hasCheckIn ? "Edit reflection check-in" : "Add reflection check-in"}
@@ -88,20 +98,13 @@ export function WorkspaceAppBar({
           loading={summaryState === "summarizing"}
           loadingLabel="Creating…"
           title={hint}
+          aria-label={SUMMARY_ACTION_LABELS[summaryState]}
           aria-describedby={hint ? "summary-action-hint" : undefined}
-          className="hidden sm:inline-flex"
+          className="max-w-[8rem] px-2.5 sm:max-w-none sm:px-4"
         >
-          {SUMMARY_ACTION_LABELS[summaryState]}
+          <span className="truncate sm:hidden">Summary</span>
+          <span className="hidden truncate sm:inline">{SUMMARY_ACTION_LABELS[summaryState]}</span>
         </Button>
-
-        <IconButton
-          icon="auto_awesome"
-          label={SUMMARY_ACTION_LABELS[summaryState]}
-          onClick={onSummary}
-          disabled={!session || summaryDisabled || summaryState === "summarizing"}
-          title={hint}
-          className="sm:hidden"
-        />
 
         {hint && (
           <span id="summary-action-hint" className="sr-only">
@@ -119,6 +122,15 @@ export function WorkspaceAppBar({
               disabled: !session || messagePending,
               onSelect: onExport,
             },
+            ...(onArchive
+              ? [{
+                  id: "archive",
+                  label: "Archive reflection",
+                  icon: "archive" as const,
+                  disabled: !session || session.status !== "active" || messagePending,
+                  onSelect: onArchive,
+                }]
+              : []),
             {
               id: "delete",
               label: "Delete reflection",
@@ -148,7 +160,8 @@ export function WorkspaceAppBar({
             </button>
           )}
         />
-      </div>
+        </div>
+      )}
     </header>
   );
 }

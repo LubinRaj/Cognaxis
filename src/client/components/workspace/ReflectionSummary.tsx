@@ -26,7 +26,7 @@ function readCollapsed(): boolean {
 type ReflectionSummaryProps = {
   summary: PersonalMemory | null;
   state: SummaryActionState;
-  onUpdate: () => void;
+  onUpdate?: () => void;
   onCopyResult: (message: string) => void;
 };
 
@@ -114,12 +114,14 @@ function ReflectionSummaryComponent(
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <IconButton
-            icon={copied ? "check" : "content_copy"}
-            label={copied ? "Summary copied" : "Copy summary"}
-            size={18}
-            onClick={() => void copySummary()}
-          />
+          {!collapsed && (
+            <IconButton
+              icon={copied ? "check" : "content_copy"}
+              label={copied ? "Summary copied" : "Copy summary"}
+              size={18}
+              onClick={() => void copySummary()}
+            />
+          )}
           <IconButton
             icon={collapsed ? "expand_more" : "expand_less"}
             label={collapsed ? "Expand reflection summary" : "Collapse reflection summary"}
@@ -130,6 +132,17 @@ function ReflectionSummaryComponent(
           />
         </div>
       </div>
+
+      {collapsed && (
+        <div className="flex items-center justify-between gap-3 px-4 pb-4 sm:pl-16">
+          <p className="text-on-surface-variant min-w-0 truncate text-sm">
+            View the themes and next steps from this reflection.
+          </p>
+          <Button size="compact" variant="text" onClick={() => setCollapsed(false)}>
+            View summary
+          </Button>
+        </div>
+      )}
 
       {!collapsed && (
         <div id="reflection-summary-body" className="flex flex-col gap-4 px-4 pb-4 sm:pl-16">
@@ -173,7 +186,7 @@ function ReflectionSummaryComponent(
             .
           </p>
 
-          {state === "stale" && (
+          {state === "stale" && onUpdate && (
             <div className="border-outline-variant flex flex-wrap items-center gap-3 border-t pt-3">
               <p className="text-on-surface-variant flex items-center gap-1.5 text-xs">
                 <span aria-hidden="true" className="text-warning">

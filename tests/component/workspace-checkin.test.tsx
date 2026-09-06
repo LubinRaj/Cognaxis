@@ -18,7 +18,7 @@ vi.mock("../../src/client/lib/firebase", async () => {
 
 const { resetHarness, makeUser } = await import("./support/firebase-harness");
 const { renderApp, signalUser } = await import("./support/render-app");
-const { installWorkspaceApi, makeDetail, makeSession, makeSignal, failure } = await import(
+const { installWorkspaceApi, makeDetail, makeSession, makeSignal, failure, releaseGate } = await import(
   "./support/workspace-api"
 );
 
@@ -36,7 +36,9 @@ async function renderJournalWithSession() {
 
 function lastSignalPut(): UpsertSignalInput {
   const puts = api.routes.filter(
-    (route) => route.method === "PUT" && route.url.endsWith("/signals"),
+    (route) =>
+      (route.method === "PUT" && route.url.endsWith("/signals")) ||
+      (route.method === "POST" && route.url.endsWith("/check-ins")),
   );
   expect(puts.length).toBeGreaterThan(0);
   return puts[puts.length - 1].body as UpsertSignalInput;
@@ -59,7 +61,7 @@ describe("reflection check-in", () => {
     await user.click(
       await screen.findByRole("button", { name: "Add reflection check-in" }),
     );
-    expect(await screen.findByRole("dialog", { name: "Reflection check-in" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Private check-in" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: /Good/ }));
     await user.click(screen.getByRole("button", { name: "Calm" }));
@@ -68,7 +70,7 @@ describe("reflection check-in", () => {
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
 
     const body = lastSignalPut();
@@ -95,7 +97,7 @@ describe("reflection check-in", () => {
     expect(await screen.findByText("Mood: Low")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Edit reflection check-in" }));
-    const dialog = await screen.findByRole("dialog", { name: "Reflection check-in" });
+    const dialog = await screen.findByRole("dialog", { name: "Private check-in" });
     expect(dialog).toBeInTheDocument();
 
     expect(
@@ -104,9 +106,9 @@ describe("reflection check-in", () => {
     expect(screen.getByRole("button", { name: "Tired" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText(/Private note/)).toHaveValue("Long day.");
 
-    await user.click(screen.getByRole("button", { name: "Remove check-in" }));
+    await user.click(screen.getByRole("button", { name: "Remove latest check-in" }));
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
     expect(
       api.routes.some((route) => route.method === "DELETE" && route.url.endsWith("/signals")),
@@ -118,7 +120,7 @@ describe("reflection check-in", () => {
     const user = userEvent.setup();
     await renderJournalWithSession();
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
 
     for (const emotion of ["Calm", "Hopeful", "Focused", "Energized", "Grateful"]) {
       await user.click(screen.getByRole("button", { name: emotion }));
@@ -132,25 +134,25 @@ describe("reflection check-in", () => {
     await renderJournalWithSession();
 
     api.handler = (route) =>
-      route.method === "PUT" && route.url.endsWith("/signals")
+      route.method === "POST" && route.url.endsWith("/check-ins")
         ? failure(500, "INTERNAL_ERROR", "The request could not be completed.")
         : null;
 
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
     await user.click(screen.getByRole("radio", { name: /Very good/ }));
     await user.type(screen.getByLabelText(/Private note/), "Do not lose this.");
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
 
     expect(await screen.findByText("The request could not be completed.")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Reflection check-in" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Private check-in" })).toBeInTheDocument();
     expect(screen.getByLabelText(/Private note/)).toHaveValue("Do not lose this.");
     expect(screen.getByRole("radio", { name: /Very good/ })).toBeChecked();
 
     api.handler = null;
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
   });
 
@@ -164,7 +166,7 @@ describe("reflection check-in", () => {
     await renderJournalWithSession();
 
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
     expect(getCurrentPosition).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Use my current location" }));
@@ -194,7 +196,7 @@ describe("reflection check-in", () => {
     await renderJournalWithSession();
 
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
     await user.click(screen.getByRole("button", { name: "Use my current location" }));
 
     expect(
@@ -204,7 +206,7 @@ describe("reflection check-in", () => {
     await user.click(screen.getByRole("radio", { name: /Good/ }));
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
     expect(lastSignalPut().location).toBeNull();
   });
@@ -234,7 +236,7 @@ describe("reflection check-in", () => {
     await renderJournalWithSession();
 
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
     await user.click(screen.getByRole("button", { name: "Use my current location" }));
 
     expect(await screen.findByTestId("location-coordinates")).toHaveTextContent("12.97160");
@@ -247,7 +249,7 @@ describe("reflection check-in", () => {
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
     const body = lastSignalPut();
     expect(body.location).toMatchObject({
@@ -280,12 +282,12 @@ describe("reflection check-in", () => {
     expect(await screen.findByText("Old spot")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Edit reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
     await user.click(screen.getByRole("button", { name: "Remove location" }));
     await user.click(screen.getByRole("button", { name: "Save check-in" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Reflection check-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Private check-in" })).not.toBeInTheDocument();
     });
     const body = lastSignalPut();
     expect(body.location).toBeNull();
@@ -297,12 +299,35 @@ describe("reflection check-in", () => {
     const user = userEvent.setup();
     await renderJournalWithSession();
     await user.click(await screen.findByRole("button", { name: "Add reflection check-in" }));
-    await screen.findByRole("dialog", { name: "Reflection check-in" });
+    await screen.findByRole("dialog", { name: "Private check-in" });
 
     expect(screen.getByRole("button", { name: "Save check-in" })).toBeDisabled();
     await user.click(screen.getByRole("radio", { name: /Okay/ }));
     expect(screen.getByRole("button", { name: "Save check-in" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Clear mood" }));
     expect(screen.getByRole("button", { name: "Save check-in" })).toBeDisabled();
+  });
+
+  it("shows upload progress and moves an uploaded document into the sent message", async () => {
+    const user = userEvent.setup();
+    await renderJournalWithSession();
+
+    api.gate.hold = true;
+    const fileInput = document.querySelector('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+    await user.upload(fileInput as HTMLInputElement, new File(["notes"], "notes.pdf", { type: "application/pdf" }));
+
+    expect(await screen.findByRole("status", { name: "Uploading notes.pdf" })).toBeInTheDocument();
+    releaseGate(api);
+    expect(await screen.findByText("Document attached")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Write your reflection" }), "Summarize this document.");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      const message = api.routes.find((route) => route.method === "POST" && route.url.endsWith("/messages"));
+      expect(message?.body).toMatchObject({ attachmentIds: [expect.stringMatching(/^attachment-/)] });
+    });
+    await waitFor(() => expect(screen.queryByText("Document attached")).not.toBeInTheDocument());
   });
 });

@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import type { EmotionLabel, PersonalSignal, UpsertSignalInput } from "../../../shared/schemas";
+import type { EmotionLabel, PersonalCheckIn, PersonalSignal, Preferences, UpsertSignalInput } from "../../../shared/schemas";
 import { emotionLabels } from "../../../shared/schemas";
 import {
   ENERGY_LABELS,
@@ -80,13 +80,15 @@ function ScoreGroup({ legend, labels, value, name, onChange, disabled }: ScoreGr
 
 export type CheckInDialogProps = {
   sessionTitle: string;
-  initialSignal: PersonalSignal | null;
+  initialSignal: PersonalSignal | PersonalCheckIn | null;
   saving: boolean;
   errorMessage: string | null;
   onDismissError: () => void;
   onSave: (input: UpsertSignalInput) => Promise<boolean>;
   onRemove: () => Promise<boolean>;
   onClose: () => void;
+  nudge?: boolean;
+  locationMode?: Preferences["locationMode"];
 };
 
 export function CheckInDialog({
@@ -98,6 +100,8 @@ export function CheckInDialog({
   onSave,
   onRemove,
   onClose,
+  nudge = false,
+  locationMode = "off",
 }: CheckInDialogProps) {
   const [draft, setDraft] = useState<CheckInDraft>(() => draftFromSignal(initialSignal));
   const noteId = useId();
@@ -119,15 +123,15 @@ export function CheckInDialog({
   return (
     <Dialog
       open
-      title="Reflection check-in"
-      description={`How you feel right now, kept privately with “${sessionTitle}”. Every part is optional.`}
+      title="Private check-in"
+      description={`How you are arriving, kept privately with “${sessionTitle}”. Every part is optional, and each save is a time-stamped moment.`}
       onClose={onClose}
       busy={saving}
       size="wide"
       actions={
         <>
           <Button variant="text" onClick={onClose} disabled={saving}>
-            Cancel
+            {nudge ? "Skip for now" : "Cancel"}
           </Button>
           {initialSignal && (
             <Button
@@ -136,7 +140,7 @@ export function CheckInDialog({
               onClick={() => void remove()}
               disabled={saving}
             >
-              Remove check-in
+              Remove latest check-in
             </Button>
           )}
           <Button
@@ -208,6 +212,7 @@ export function CheckInDialog({
         <CheckInLocationSection
           location={draft.location}
           disabled={saving}
+          locationMode={locationMode}
           onChange={(location) => setDraft((current) => ({ ...current, location }))}
         />
 

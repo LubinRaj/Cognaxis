@@ -3,12 +3,14 @@ import {
   isSessionTerminatingResponse,
   shouldForceTokenRefresh,
 } from "../auth/token-retry-policy.js";
-import { streamEventSchema } from "../../shared/schemas.js";
+import { organizationStreamEventSchema, streamEventSchema } from "../../shared/schemas.js";
 import type {
   AdminAuditPage,
   AdminOverview,
   AdminUserPage,
+  AttachmentReference,
   Capabilities,
+  CreateCheckInInput,
   CreateMessageInput,
   CreateOrganizationInput,
   CreateSessionInput,
@@ -18,17 +20,24 @@ import type {
   JournalSession,
   MapPoint,
   MessageExchange,
+  MemoryIndexBuildResult,
   Organization,
   OrganizationDetail,
   OrganizationInvite,
   OrganizationMemberView,
   OrganizationMessage,
+  OrganizationMemoryAnswer,
+  OrganizationEodSettings,
+  OrganizationEodStatus,
   OrganizationSession,
   OrganizationSessionDetail,
   OrganizationSummary,
   PersonalDashboard,
+  PersonalCheckIn,
   PersonalInsight,
   PersonalMemory,
+  PersonalMemoryAnswer,
+  PersonalOpenLoop,
   PersonalSignal,
   PlatformRole,
   PlatformStatus,
@@ -45,6 +54,73 @@ import type {
 } from "../../shared/schemas.js";
 
 type ErrorBody = { error?: { code?: string; message?: string; requestId?: string } };
+
+// The private API permits ten requests per second per user. A browser page can legitimately
+// mount several small data readers at once, especially when a person switches between sections,
+// so let the client smooth that fan-out before it reaches the server. The queue is shared by all
+// ApiClient instances in this tab; without that, each React feature hook would have its own view
+// of the limit and a fast navigation would still release a burst of 429s. Writes and model
+// streams are paced too, but are intentionally never replayed here.
+const CLIENT_REQUEST_SPACING_MS = 125;
+let nextRequestAt = 0;
+
+function shouldSmoothRequests(): boolean {
+  // Vitest's jsdom environment exposes a window, but it is not a real browser tab and should not
+  // inherit production pacing delays. E2E and deployed clients run in an actual browser.
+  return typeof window !== "undefined" && !window.navigator.userAgent.toLowerCase().includes("jsdom");
+}
+
+function retryDelayMs(response: Response): number {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number.parseFloat(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  }
+
+  const rateLimit = response.headers.get("ratelimit");
+  const reset = rateLimit?.match(/(?:^|,)\s*reset=(\d+)/i);
+  if (reset) return Math.max(0, Number(reset[1]) * 1_000);
+  return 1_050;
+}
+
+function reserveRequestSlot(minDelayMs = 0): number {
+  const scheduledAt = Math.max(Date.now() + minDelayMs, nextRequestAt);
+  nextRequestAt = scheduledAt + CLIENT_REQUEST_SPACING_MS;
+  return scheduledAt - Date.now();
+}
+
+async function waitForRequestSlot(signal?: AbortSignal | null): Promise<void> {
+  if (!shouldSmoothRequests()) return;
+  const delay = reserveRequestSlot();
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException("The request was aborted.", "AbortError");
+  }
+  if (delay <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, delay);
+    const abort = () => {
+      globalThis.clearTimeout(timer);
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new DOMException("The request was aborted.", "AbortError"),
+      );
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function waitForReadRetry(response: Response): Promise<void> {
+  if (!shouldSmoothRequests()) return;
+  const delay = reserveRequestSlot(retryDelayMs(response));
+  // Space queued calls just enough that a single retried page load cannot consume the next burst.
+  if (delay > 0) await new Promise<void>((resolve) => globalThis.setTimeout(resolve, delay));
+}
 
 export class ApiError extends Error {
   constructor(
@@ -76,21 +152,34 @@ export class ApiClient {
     // Cognaxis never stores the ID token or reads the refresh token.
     const token = await user.getIdToken(forceRefresh);
 
+    const headers = {
+      ...init.headers,
+      authorization: `Bearer ${token}`,
+    } as Record<string, string>;
+    if (!headers["content-type"] && !headers["Content-Type"]) {
+      headers["content-type"] = "application/json";
+    }
+
+    await waitForRequestSlot(init.signal);
     return fetch(`/api/v1${path}`, {
       ...init,
-      headers: {
-        ...init.headers,
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
+      headers,
       cache: "no-store",
     });
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async requestResponse(path: string, init: RequestInit = {}): Promise<Response> {
     const method = init.method ?? "GET";
     let completedRefreshes = 0;
     let response = await this.send(path, init, false);
+
+    // Normal page reads can fan out while a user switches screens. Respect the server's cooldown
+    // and replay one idempotent read instead of surfacing a transient error state. Mutations stay
+    // single-shot to avoid duplicate destructive or AI work.
+    if (!response.ok && response.status === 429 && (method === "GET" || method === "HEAD")) {
+      await waitForReadRetry(response);
+      response = await this.send(path, init, false);
+    }
 
     if (!response.ok) {
       const failure = await readFailure(response);
@@ -109,6 +198,12 @@ export class ApiClient {
         throw new ApiError(failure.status, failure.errorCode, failure.message);
       }
     }
+
+    return response;
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await this.requestResponse(path, init);
 
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
@@ -132,9 +227,16 @@ export class ApiClient {
     return parseCapabilities(await this.request<unknown>("/me/capabilities"));
   }
 
-  async listSessions(): Promise<JournalSession[]> {
-    const body = await this.request<{ sessions: JournalSession[] }>("/sessions?limit=30");
+  async listSessions(status: "active" | "archived" = "active"): Promise<JournalSession[]> {
+    const body = await this.request<{ sessions: JournalSession[] }>(
+      `/sessions?limit=30${status === "archived" ? "&status=archived" : ""}`,
+    );
     return body.sessions;
+  }
+
+  async listReflectionTags(): Promise<string[]> {
+    const body = await this.request<{ tags: string[] }>("/tags?limit=100");
+    return body.tags;
   }
 
   async createSession(input: CreateSessionInput = {}): Promise<JournalSession> {
@@ -145,11 +247,48 @@ export class ApiClient {
     return body.session;
   }
 
+  async renameSession(sessionId: string, title: string): Promise<JournalSession> {
+    const body = await this.request<{ session: JournalSession }>(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "PATCH", body: JSON.stringify({ title }) },
+    );
+    return body.session;
+  }
+
+  async updateSessionTags(sessionId: string, tags: string[]): Promise<JournalSession> {
+    const body = await this.request<{ session: JournalSession }>(
+      `/sessions/${encodeURIComponent(sessionId)}/tags`,
+      { method: "PATCH", body: JSON.stringify({ tags }) },
+    );
+    return body.session;
+  }
+
   async getSession(sessionId: string): Promise<SessionDetail> {
     const body = await this.request<{ session: SessionDetail }>(
       `/sessions/${encodeURIComponent(sessionId)}`,
     );
     return body.session;
+  }
+
+  async getProfilePhoto(): Promise<string | null> {
+    const response = await this.requestResponse("/profile/photo");
+    if (response.status === 204) return null;
+    return URL.createObjectURL(await response.blob());
+  }
+
+  async uploadProfilePhoto(file: File): Promise<string> {
+    await this.request("/profile/photo", {
+      method: "PUT",
+      body: file,
+      headers: { "content-type": file.type },
+    });
+    const photoUrl = await this.getProfilePhoto();
+    if (!photoUrl) throw new ApiError(502, "PROFILE_PHOTO_UNAVAILABLE", "The uploaded photo could not be loaded.");
+    return photoUrl;
+  }
+
+  async deleteProfilePhoto(): Promise<void> {
+    await this.request("/profile/photo", { method: "DELETE" });
   }
 
   async addMessage(sessionId: string, input: CreateMessageInput) {
@@ -163,6 +302,44 @@ export class ApiClient {
     });
   }
 
+  async uploadPersonalAttachment(sessionId: string, file: File): Promise<AttachmentReference> {
+    const body = await this.request<{ attachment: AttachmentReference }>(
+      `/sessions/${encodeURIComponent(sessionId)}/attachments`,
+      { method: "POST", body: file, headers: { "content-type": file.type } },
+    );
+    return body.attachment;
+  }
+
+  async deletePersonalAttachment(sessionId: string, attachmentId: string): Promise<void> {
+    await this.request(
+      `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async getPersonalAttachment(sessionId: string, attachmentId: string): Promise<Blob> {
+    const response = await this.requestResponse(
+      `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    );
+    return response.blob();
+  }
+
+  async transcribePersonalAttachment(sessionId: string, attachmentId: string): Promise<string> {
+    const body = await this.request<{ transcript: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/transcribe`,
+      { method: "POST", body: "{}" },
+    );
+    return body.transcript;
+  }
+
+  async transcribePersonalVoice(sessionId: string, file: File): Promise<string> {
+    const response = await this.requestResponse(
+      `/sessions/${encodeURIComponent(sessionId)}/voice/transcribe`,
+      { method: "POST", body: file, headers: { "content-type": file.type } },
+    );
+    return ((await response.json()) as { transcript: string }).transcript;
+  }
+
   async addMessageStream(
     sessionId: string,
     input: CreateMessageInput,
@@ -172,6 +349,7 @@ export class ApiClient {
     userMessage: SessionDetail["messages"][number];
     assistantMessage: SessionDetail["messages"][number];
     summary: PersonalMemory | null;
+    session?: JournalSession;
   }> {
     const init = { method: "POST", body: JSON.stringify(input), signal };
     let response = await this.send(`/sessions/${encodeURIComponent(sessionId)}/messages`, init, false);
@@ -250,6 +428,22 @@ export class ApiClient {
     await this.request(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
   }
 
+  async archiveSession(sessionId: string): Promise<JournalSession> {
+    const body = await this.request<{ session: JournalSession }>(
+      `/sessions/${encodeURIComponent(sessionId)}/archive`,
+      { method: "POST", body: "{}" },
+    );
+    return body.session;
+  }
+
+  async restoreSession(sessionId: string): Promise<JournalSession> {
+    const body = await this.request<{ session: JournalSession }>(
+      `/sessions/${encodeURIComponent(sessionId)}/restore`,
+      { method: "POST", body: "{}" },
+    );
+    return body.session;
+  }
+
   async getSignal(sessionId: string): Promise<PersonalSignal | null> {
     const body = await this.request<{ signal: PersonalSignal | null }>(
       `/sessions/${encodeURIComponent(sessionId)}/signals`,
@@ -273,6 +467,28 @@ export class ApiClient {
     });
   }
 
+  async listCheckIns(sessionId: string): Promise<PersonalCheckIn[]> {
+    const body = await this.request<{ checkIns: PersonalCheckIn[] }>(
+      `/sessions/${encodeURIComponent(sessionId)}/check-ins`,
+    );
+    return body.checkIns;
+  }
+
+  async createCheckIn(sessionId: string, input: CreateCheckInInput): Promise<PersonalCheckIn> {
+    const body = await this.request<{ checkIn: PersonalCheckIn }>(
+      `/sessions/${encodeURIComponent(sessionId)}/check-ins`,
+      { method: "POST", body: JSON.stringify(input) },
+    );
+    return body.checkIn;
+  }
+
+  async deleteCheckIn(sessionId: string, checkInId: string): Promise<void> {
+    await this.request(
+      `/sessions/${encodeURIComponent(sessionId)}/check-ins/${encodeURIComponent(checkInId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   async getPreferences(): Promise<Preferences> {
     const body = await this.request<{ preferences: Preferences }>("/personal/preferences");
     return body.preferences;
@@ -284,6 +500,26 @@ export class ApiClient {
       body: JSON.stringify(input),
     });
     return body.preferences;
+  }
+
+  async askPersonalMemory(query: string): Promise<PersonalMemoryAnswer> {
+    const body = await this.request<PersonalMemoryAnswer>("/personal/memory/ask", {
+      method: "POST",
+      body: JSON.stringify({ requestId: crypto.randomUUID(), query }),
+    });
+    return body;
+  }
+
+  async buildPersonalMemoryIndex(limit = 20): Promise<MemoryIndexBuildResult> {
+    return this.request<MemoryIndexBuildResult>("/personal/memory/index", {
+      method: "POST",
+      body: JSON.stringify({ limit }),
+    });
+  }
+
+  async listPersonalOpenLoops(): Promise<PersonalOpenLoop[]> {
+    const body = await this.request<{ openLoops: PersonalOpenLoop[] }>("/personal/open-loops");
+    return body.openLoops;
   }
 
   async getDashboardView(rangeDays: DashboardRangeDays): Promise<DashboardView> {
@@ -416,11 +652,75 @@ export class ApiClient {
     return body.membership;
   }
 
-  async listOrganizationSessions(orgId: string): Promise<OrganizationSession[]> {
+  async listOrganizationSessions(
+    orgId: string,
+    status: "active" | "archived" = "active",
+  ): Promise<OrganizationSession[]> {
     const body = await this.request<{ sessions: OrganizationSession[] }>(
-      `/organizations/${encodeURIComponent(orgId)}/sessions`,
+      `/organizations/${encodeURIComponent(orgId)}/sessions${status === "archived" ? "?status=archived" : ""}`,
     );
     return body.sessions;
+  }
+
+  async askOrganizationMemory(orgId: string, query: string): Promise<OrganizationMemoryAnswer> {
+    return this.request<OrganizationMemoryAnswer>(
+      `/organizations/${encodeURIComponent(orgId)}/memory/ask`,
+      {
+        method: "POST",
+        body: JSON.stringify({ requestId: crypto.randomUUID(), query }),
+      },
+    );
+  }
+
+  async buildOrganizationMemoryIndex(orgId: string, limit = 20): Promise<MemoryIndexBuildResult> {
+    return this.request<MemoryIndexBuildResult>(
+      `/organizations/${encodeURIComponent(orgId)}/memory/index`,
+      { method: "POST", body: JSON.stringify({ limit }) },
+    );
+  }
+
+  async getOrganizationEodSettings(orgId: string): Promise<OrganizationEodSettings> {
+    const body = await this.request<{ settings: OrganizationEodSettings }>(
+      `/organizations/${encodeURIComponent(orgId)}/eod-settings`,
+    );
+    return body.settings;
+  }
+
+  async saveOrganizationEodSettings(
+    orgId: string,
+    settings: Omit<OrganizationEodSettings, "updatedBy" | "updatedAt">,
+  ): Promise<OrganizationEodSettings> {
+    const body = await this.request<{ settings: OrganizationEodSettings }>(
+      `/organizations/${encodeURIComponent(orgId)}/eod-settings`,
+      { method: "PUT", body: JSON.stringify(settings) },
+    );
+    return body.settings;
+  }
+
+  async getOrganizationEodStatus(orgId: string, localDate: string): Promise<OrganizationEodStatus> {
+    const body = await this.request<{ status: OrganizationEodStatus }>(
+      `/organizations/${encodeURIComponent(orgId)}/eod-status/${encodeURIComponent(localDate)}`,
+    );
+    return body.status;
+  }
+
+  async getOrganizationEodSubmissionCount(orgId: string, localDate: string): Promise<number | null> {
+    const body = await this.request<{ submittedCount: number | null }>(
+      `/organizations/${encodeURIComponent(orgId)}/eod-submission-count/${encodeURIComponent(localDate)}`,
+    );
+    return body.submittedCount;
+  }
+
+  async saveOrganizationEodStatus(
+    orgId: string,
+    localDate: string,
+    changes: { dismissed?: boolean; submittedSessionId?: string | null },
+  ): Promise<OrganizationEodStatus> {
+    const body = await this.request<{ status: OrganizationEodStatus }>(
+      `/organizations/${encodeURIComponent(orgId)}/eod-status/${encodeURIComponent(localDate)}`,
+      { method: "PUT", body: JSON.stringify(changes) },
+    );
+    return body.status;
   }
 
   async createOrganizationSession(
@@ -434,12 +734,35 @@ export class ApiClient {
     return body.session;
   }
 
+  async listOrganizationTags(orgId: string): Promise<string[]> {
+    const body = await this.request<{ tags: string[] }>(
+      `/organizations/${encodeURIComponent(orgId)}/tags?limit=100`,
+    );
+    return body.tags;
+  }
+
   async getOrganizationSession(
     orgId: string,
     sessionId: string,
   ): Promise<OrganizationSessionDetail> {
     const body = await this.request<{ session: OrganizationSessionDetail }>(
       `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    return body.session;
+  }
+
+  async updateOrganizationSessionTags(orgId: string, sessionId: string, tags: string[]): Promise<OrganizationSession> {
+    const body = await this.request<{ session: OrganizationSession }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/tags`,
+      { method: "PATCH", body: JSON.stringify({ tags }) },
+    );
+    return body.session;
+  }
+
+  async renameOrganizationSession(orgId: string, sessionId: string, title: string): Promise<OrganizationSession> {
+    const body = await this.request<{ session: OrganizationSession }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "PATCH", body: JSON.stringify({ title }) },
     );
     return body.session;
   }
@@ -452,11 +775,116 @@ export class ApiClient {
     userMessage: OrganizationMessage;
     assistantMessage: OrganizationMessage;
     messageCount: number;
+    session?: OrganizationSession;
   }> {
-    return this.request(
-      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
-      { method: "POST", body: JSON.stringify(input) },
+    return this.addOrganizationMessageStream(orgId, sessionId, input, () => undefined);
+  }
+
+  async addOrganizationMessageStream(
+    orgId: string,
+    sessionId: string,
+    input: CreateMessageInput,
+    onChunk: (text: string) => void,
+    signal?: AbortSignal,
+  ): Promise<{
+    userMessage: OrganizationMessage;
+    assistantMessage: OrganizationMessage;
+    messageCount: number;
+    session?: OrganizationSession;
+  }> {
+    const path = `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/messages`;
+    const init = { method: "POST", body: JSON.stringify(input), signal };
+    let response = await this.send(path, init, false);
+    if (!response.ok) {
+      const failure = await readFailure(response);
+      if (shouldForceTokenRefresh({ ...failure, completedRefreshes: 0, method: "POST" })) {
+        response = await this.send(path, init, true);
+        if (!response.ok) {
+          const retried = await readFailure(response);
+          this.reportTerminalFailure({ ...retried, completedRefreshes: 1 });
+          throw new ApiError(retried.status, retried.errorCode, retried.message);
+        }
+      } else {
+        this.reportTerminalFailure({ ...failure, completedRefreshes: 0 });
+        throw new ApiError(failure.status, failure.errorCode, failure.message);
+      }
+    }
+    if (!(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
+      throw new ApiError(502, "INVALID_STREAM", "The team response stream could not be started.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new ApiError(502, "INVALID_STREAM", "The team response stream could not be started.");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalExchange: { userMessage: OrganizationMessage; assistantMessage: OrganizationMessage; messageCount: number; session?: OrganizationSession } | null = null;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) continue;
+          const parsed = organizationStreamEventSchema.safeParse(safeJsonParse(line));
+          if (!parsed.success) throw new ApiError(502, "INVALID_STREAM", "The team response stream was invalid.");
+          if (parsed.data.type === "chunk") onChunk(parsed.data.text);
+          else if (parsed.data.type === "complete") finalExchange = parsed.data.exchange;
+          else if (parsed.data.type === "error") {
+            throw new ApiError(parsed.data.status, parsed.data.code, parsed.data.message);
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (!finalExchange) {
+      throw new ApiError(502, "INCOMPLETE_STREAM", "The team response stream ended before completion.");
+    }
+    return finalExchange;
+  }
+
+  async uploadOrganizationAttachment(
+    orgId: string,
+    sessionId: string,
+    file: File,
+  ): Promise<AttachmentReference> {
+    const body = await this.request<{ attachment: AttachmentReference }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/attachments`,
+      { method: "POST", body: file, headers: { "content-type": file.type } },
     );
+    return body.attachment;
+  }
+
+  async deleteOrganizationAttachment(orgId: string, sessionId: string, attachmentId: string): Promise<void> {
+    await this.request(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async getOrganizationAttachment(orgId: string, sessionId: string, attachmentId: string): Promise<Blob> {
+    const response = await this.requestResponse(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    );
+    return response.blob();
+  }
+
+  async transcribeOrganizationAttachment(orgId: string, sessionId: string, attachmentId: string): Promise<string> {
+    const body = await this.request<{ transcript: string }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/transcribe`,
+      { method: "POST", body: "{}" },
+    );
+    return body.transcript;
+  }
+
+  async transcribeOrganizationVoice(orgId: string, sessionId: string, file: File): Promise<string> {
+    const response = await this.requestResponse(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/voice/transcribe`,
+      { method: "POST", body: file, headers: { "content-type": file.type } },
+    );
+    return ((await response.json()) as { transcript: string }).transcript;
   }
 
   async summarizeOrganizationSession(
@@ -475,6 +903,22 @@ export class ApiClient {
       `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}`,
       { method: "DELETE" },
     );
+  }
+
+  async archiveOrganizationSession(orgId: string, sessionId: string): Promise<OrganizationSession> {
+    const body = await this.request<{ session: OrganizationSession }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/archive`,
+      { method: "POST", body: "{}" },
+    );
+    return body.session;
+  }
+
+  async restoreOrganizationSession(orgId: string, sessionId: string): Promise<OrganizationSession> {
+    const body = await this.request<{ session: OrganizationSession }>(
+      `/organizations/${encodeURIComponent(orgId)}/sessions/${encodeURIComponent(sessionId)}/restore`,
+      { method: "POST", body: "{}" },
+    );
+    return body.session;
   }
 
   async adminOverview(): Promise<AdminOverview> {

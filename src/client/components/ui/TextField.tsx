@@ -60,6 +60,7 @@ export function TextField({
           ref={inputRef}
           id={inputId}
           value={value}
+          aria-label={hideLabel ? label : undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy.length > 0 ? describedBy : undefined}
           className={`text-on-surface bg-surface placeholder:text-on-surface-variant min-h-11 w-full rounded-xl border text-sm transition-[border-color,box-shadow] duration-(--duration-feedback) focus-visible:outline-none ${

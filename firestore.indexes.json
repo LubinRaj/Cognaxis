@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "personalCheckIns",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sourceSessionId", "order": "ASCENDING" },
+        { "fieldPath": "capturedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "personalInsights",
       "queryScope": "COLLECTION",
       "fields": [
@@ -40,6 +48,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "lastSeenAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "memoryChunks",
+      "queryScope": "COLLECTION",
+      "vectorConfig": {
+        "dimension": 768,
+        "flat": {}
+      }
     }
   ],
   "fieldOverrides": []

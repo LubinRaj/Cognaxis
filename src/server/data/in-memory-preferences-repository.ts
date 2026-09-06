@@ -18,6 +18,7 @@ export class InMemoryPreferencesRepository implements PreferencesRepository {
       timezone: input.timezone,
       weekStartsOn: input.weekStartsOn,
       insightRangeDays: input.insightRangeDays,
+      locationMode: input.locationMode ?? existing?.locationMode ?? "off",
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       schemaVersion: 1,

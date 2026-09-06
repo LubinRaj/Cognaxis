@@ -125,7 +125,7 @@ describe("platform administration page", () => {
 
     await user.click(screen.getByRole("tab", { name: "Audit" }));
     expect(await screen.findByText("platformUser.roleChanged")).toBeInTheDocument();
-    expect(screen.getByText(/platformRole: user → super_admin/)).toBeInTheDocument();
+    expect(screen.getByText(/platformRole: user to super_admin/)).toBeInTheDocument();
     expect(screen.getByText(/Routine access review\./)).toBeInTheDocument();
   });
 });

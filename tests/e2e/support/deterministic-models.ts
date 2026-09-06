@@ -1,6 +1,10 @@
 import type { JournalMessage, SummaryOutput } from "../../../src/shared/schemas.js";
 import type { ConversationModel } from "../../../src/server/services/conversation-model.js";
 import type {
+  GroundedMemoryInput,
+  GroundedMemoryModelAnswer,
+} from "../../../src/server/services/conversation-model.js";
+import type {
   InsightModel,
   InsightModelInput,
 } from "../../../src/server/services/insight-model.js";
@@ -57,6 +61,37 @@ export class DeterministicConversationModel implements ConversationModel {
       summary: "A deterministic summary produced for automated end-to-end tests.",
       themes: ["clarity"],
       nextSteps: ["Write the next thought."],
+    };
+  }
+
+  async embedText(text: string): Promise<{ values: number[]; model: string }> {
+    // Stable non-zero vectors exercise the complete scoped retrieval pipeline without a network.
+    const parity = [...text].reduce((total, character) => total + character.charCodeAt(0), 0) % 2;
+    return { values: parity === 0 ? [1, 0] : [0.99, 0.01], model: "e2e-embedding" };
+  }
+
+  async answerGroundedMemory(input: GroundedMemoryInput): Promise<GroundedMemoryModelAnswer> {
+    const source = input.evidence[0];
+    if (!source) {
+      return {
+        answer: "There is not enough saved evidence to answer.",
+        confidence: "low",
+        insufficientEvidence: true,
+        citations: [],
+      };
+    }
+    const supportingExcerpt = source.text.slice(0, Math.min(80, source.text.length));
+    return {
+      answer: input.scope === "personal"
+        ? "A grounded personal memory answer."
+        : "A grounded shared team answer.",
+      confidence: "high",
+      insufficientEvidence: false,
+      citations: [{
+        sourceSessionId: source.sourceSessionId,
+        sourceMessageIds: source.sourceMessageIds.slice(0, 1),
+        supportingExcerpt,
+      }],
     };
   }
 }

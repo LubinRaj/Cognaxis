@@ -9,9 +9,11 @@ Cognaxis combines an authenticated conversational workspace with permission-scop
 ## What the project demonstrates
 
 - **Conversational intelligence:** multi-turn Gemini conversations with bounded context and schema-validated summaries
+- **Multimodal capture:** inline voice transcription plus private image and document attachments sent only to the selected scope
 - **Private memory:** server-derived Firestore paths for personal sessions, messages, summaries, signals, insights, and cascade deletion
 - **Identity and access control:** Firebase authentication, verified-email checks, server-side token verification, platform roles, and organization role enforcement
 - **Organization workflows:** organization creation, membership, single-use invitations, team administration, and audit events while personal journals remain separately authorized
+- **Grounded retrieval:** scope-specific Firestore vector memory for personal and team questions, with source citations and a safe keyword fallback when vector indexes are unavailable
 - **Platform administration:** protected user, role, status, and high-level metrics surfaces for super administrators
 - **Security by construction:** server-only model access, Secret Manager integration, Zod validation, exact-origin CORS, security headers, request limits, redacted errors, and deny-by-default Firestore client rules
 - **Verification evidence:** unit, component, integration, negative authorization, accessibility, and repository security checks
@@ -53,7 +55,7 @@ Implemented and verified by the local automated suite:
   logging and errors, and per-operation rate limits (counted per running instance; transactional
   request-id idempotency in the data layer is the cross-instance duplicate protection);
 - deny-by-default Firestore client rules and versioned composite indexes;
-- 560+ synthetic unit, repository, integration, and component tests covering the cross-user,
+- 644+ synthetic unit, repository, integration, and component tests covering the cross-user,
   cross-organization, role-matrix, injection, and admin non-disclosure boundaries.
 
 Production deployment also requires the external configuration described below:
@@ -61,6 +63,7 @@ Production deployment also requires the external configuration described below:
 - attach Firebase to the ideathon Google Cloud project;
 - enable the sign-in providers and register authorized domains;
 - create the Firestore database, deploy the deny-all rules and the composite indexes;
+- enable Firebase Storage and configure its private bucket for private image/document attachments;
 - create the Gemini secret and dedicated Cloud Run runtime identity;
 - create and restrict a separate Google Maps JavaScript browser key;
 - grant secret-specific and datastore-specific IAM;
@@ -132,16 +135,23 @@ After the first AI Studio publication, open its Cloud Run service through **Adva
 2. set `APP_ORIGIN` to the exact published HTTPS origin;
 3. set `GOOGLE_CLOUD_PROJECT=ideathon-journal`;
 4. set `GEMINI_MODEL=gemini-3.7-flash`;
-5. add `GEMINI_API_KEY` as a Secret Manager reference exposed as an environment variable
+5. set `FIREBASE_STORAGE_BUCKET` to the exact Firebase Storage bucket name;
+6. add `GEMINI_API_KEY` as a Secret Manager reference exposed as an environment variable
    (pinned numeric version — never paste the raw key);
-6. set `FIREBASE_AUTH_DOMAIN` to the exact Firebase authentication domain;
-7. decide the `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`, and
+7. set `FIREBASE_AUTH_DOMAIN` to the exact Firebase authentication domain;
+8. decide the `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`, and
    `FEATURE_ADMIN` launch flags;
-8. apply the required label `dev-tutorial=cloud-run-ai-challenge`.
+9. optionally set `AGENT_PLATFORM_FALLBACK_ENABLED=true` after enabling the Agent Platform API and
+   granting the runtime identity `roles/aiplatform.user`. The fallback reuses
+   `GOOGLE_CLOUD_PROJECT` and `GEMINI_MODEL`, always uses the global endpoint, and needs no key;
+10. apply the required label `dev-tutorial=cloud-run-ai-challenge`.
 
-The runtime identity receives `roles/datastore.user` on the project and
-`roles/secretmanager.secretAccessor` only on the Gemini secret. It must not receive Owner or
-Editor, and no service-account JSON key is created or uploaded.
+The runtime identity receives `roles/datastore.user` on the project, object read/write/delete
+access on the private Firebase Storage bucket, and `roles/secretmanager.secretAccessor` only on
+the Gemini secret. It must not receive Owner or Editor, and no service-account JSON key is created
+or uploaded. When the optional Agent Platform fallback is enabled, it authenticates with this Cloud
+Run identity through Application Default Credentials; the AI Studio `GEMINI_API_KEY` is still used
+only by the primary Gemini Developer API request.
 
 In Firebase Console:
 

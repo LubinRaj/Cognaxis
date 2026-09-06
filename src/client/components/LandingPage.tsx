@@ -4,20 +4,20 @@ import { ThemeMenu } from "./ThemeMenu";
 const steps = [
   {
     icon: "edit_document" as const,
-    title: "Reflect naturally",
-    body: "Write, vent, or brainstorm exactly as you think without worrying about structure.",
+    title: "Capture what matters",
+    body: "Write, speak, or attach a note in one reflection. Start messy and shape it as you go.",
     tone: "primary" as const,
   },
   {
     icon: "forum" as const,
-    title: "Explore with Gemini",
-    body: "The AI acts as a sounding board, asking clarifying questions to distil your ideas.",
+    title: "Reflect with context",
+    body: "Cognaxis asks thoughtful questions and responds using the context you chose to share.",
     tone: "secondary" as const,
   },
   {
     icon: "bookmark_added" as const,
-    title: "Keep the insight",
-    body: "Key takeaways are summarised, themed, and saved to your private memory.",
+    title: "Keep the thread useful",
+    body: "Create summaries, revisit themes, and follow insights, check-ins, and open loops over time.",
     tone: "primary" as const,
   },
 ];
@@ -40,8 +40,31 @@ const assurances = [
   },
   {
     icon: "folder_managed" as const,
-    title: "Scoped data",
-    body: "Your journal data is scoped and isolated to your verified account.",
+    title: "Separate spaces",
+    body: "Personal reflections stay isolated from team spaces, with access checked on every request.",
+  },
+];
+
+const intelligenceFeatures = [
+  {
+    icon: "psychiatry" as const,
+    title: "Think through real life",
+    body: "Use one calm space for work, study, business decisions, relationships, or whatever is on your mind.",
+  },
+  {
+    icon: "memory" as const,
+    title: "Build a useful second brain",
+    body: "Revisit past decisions, themes, and next steps with answers grounded in the reflections you have saved.",
+  },
+  {
+    icon: "auto_graph" as const,
+    title: "Notice patterns over time",
+    body: "Optional check-ins, insights, and streaks help you see what is changing without inventing meaning for you.",
+  },
+  {
+    icon: "groups" as const,
+    title: "Keep team context together",
+    body: "Share deliberate updates, decisions, and blockers in a team space while personal reflections remain separate.",
   },
 ];
 
@@ -69,6 +92,12 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
               className="text-on-surface-variant hover:text-on-surface text-sm font-medium transition-colors"
             >
               How it works
+            </a>
+            <a
+              href="#intelligence"
+              className="text-on-surface-variant hover:text-on-surface text-sm font-medium transition-colors"
+            >
+              Intelligence
             </a>
             <a
               href="#privacy"
@@ -100,15 +129,16 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <span className="text-primary" aria-hidden="true">
                     <MaterialIcon name="auto_awesome" size={16} />
                   </span>
-                  Your private thinking space
+                  Personal and shared reflection
                 </p>
                 <h1 className="font-display text-on-surface text-4xl leading-[1.1] font-medium tracking-tight sm:text-5xl md:text-6xl lg:text-[clamp(3rem,5vw,4.5rem)]">
-                  Think freely. <br className="hidden lg:block" />
+                  Think clearly. <br className="hidden lg:block" />
                   <span className="text-primary">Remember what matters.</span>
                 </h1>
                 <p className="text-on-surface-variant mx-auto mt-6 max-w-2xl text-lg lg:mx-0">
-                  Journal with Gemini, explore your ideas, and turn meaningful conversations into
-                  personal memory—kept inside your authenticated workspace.
+                  Cognaxis is a cognitive reflection assistant and second brain for everyday life.
+                  Capture thoughts, clarify decisions, and turn experience into useful memory -
+                  privately for yourself or deliberately with your team.
                 </p>
 
                 <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:justify-center lg:justify-start">
@@ -117,7 +147,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                     onClick={onOpenAuth}
                     className="bg-primary text-on-primary focus-visible:outline-primary flex min-h-14 w-full items-center justify-center gap-2 rounded-full px-8 text-base font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
                   >
-                    Start journaling
+                    Start capturing
                     <MaterialIcon name="arrow_forward" size={18} />
                   </button>
                   <a
@@ -150,18 +180,19 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <div className="space-y-6">
                     <div className="flex justify-end">
                       <div className="bg-primary text-on-primary max-w-[85%] rounded-[24px] rounded-tr-[4px] px-5 py-3.5 text-[15px] leading-relaxed shadow-sm">
-                        I&apos;ve been struggling to organise my thoughts around the new architecture
-                        proposal. It feels too complex.
+                        I need to make a decision about next quarter without losing sight of what I
+                        learned this quarter.
                       </div>
                     </div>
                     <div className="flex justify-start">
                       <div className="bg-surface-container-high text-on-surface max-w-[90%] rounded-[24px] rounded-tl-[4px] px-5 py-4 text-[15px] leading-relaxed shadow-sm">
                         <p>
-                          Let&apos;s break it down. Complexity often comes from coupling. What if we
-                          isolated the storage layer first?
+                          Let&apos;s slow it down. What did you learn this quarter that should shape the
+                          decision?
                         </p>
                         <p className="text-on-surface-variant mt-2">
-                          Would separating the tenant isolation logic help clarify the boundaries?
+                          We can separate what you know, what is still open, and what you want to
+                          explore next.
                         </p>
                       </div>
                     </div>
@@ -172,23 +203,23 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                           <MaterialIcon name="memory" size={18} />
                         </span>
                         <span className="text-primary text-sm font-medium">
-                          Saved to your private memory
+                          Saved to your memory
                         </span>
                       </div>
                       <div className="border-outline-variant bg-surface rounded-[20px] border p-5 shadow-sm">
                         <h3 className="font-display text-on-surface text-base font-medium">
-                          Architecture simplification
+                          Next quarter decision
                         </h3>
                         <p className="text-on-surface-variant mt-1.5 text-sm leading-relaxed">
-                          Identified that system complexity stems from tight coupling. Action item:
-                          isolate the storage layer and define tenant boundaries.
+                          Captured the lessons from this quarter and the questions to revisit before
+                          choosing the next direction.
                         </p>
                         <div className="mt-4 flex gap-2">
                           <span className="bg-secondary-container text-on-secondary-container rounded-lg px-2.5 py-1 text-xs font-medium">
-                            Design
+                            Decision
                           </span>
                           <span className="bg-primary-container text-on-primary-container rounded-lg px-2.5 py-1 text-xs font-medium">
-                            Action item
+                            Open loop
                           </span>
                         </div>
                       </div>
@@ -207,7 +238,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                 How it works
               </h2>
               <p className="text-on-surface-variant mt-4 text-lg">
-                A natural flow from messy thoughts to clear insights.
+                Capture, reflect, and return to what matters.
               </p>
             </div>
 
@@ -234,18 +265,48 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
           </div>
         </section>
 
-        <section id="privacy" className="bg-surface py-24">
+        <section id="intelligence" className="bg-surface py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="text-primary text-sm font-medium">One space for shared thinking</p>
+              <h2 className="font-display text-on-surface mt-2 text-3xl font-medium tracking-tight sm:text-4xl">
+                A second brain that keeps context
+              </h2>
+              <p className="text-on-surface-variant mt-4 text-lg">
+                Use Cognaxis for personal reflection or the work you share with a team. The same
+                simple flow keeps private and shared context distinct.
+              </p>
+            </div>
+
+            <div className="mt-14 grid gap-6 md:grid-cols-2">
+              {intelligenceFeatures.map((feature) => (
+                <article
+                  key={feature.title}
+                  className="border-outline-variant bg-surface-container-low rounded-[24px] border p-6 sm:p-7"
+                >
+                  <span className="bg-primary-container text-on-primary-container inline-flex h-12 w-12 items-center justify-center rounded-2xl" aria-hidden="true">
+                    <MaterialIcon name={feature.icon} size={24} />
+                  </span>
+                  <h3 className="font-display text-on-surface mt-5 text-xl font-medium">{feature.title}</h3>
+                  <p className="text-on-surface-variant mt-2 leading-relaxed">{feature.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="privacy" className="border-outline-variant bg-surface border-t py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-2xl text-center">
               <span className="text-primary mb-4 inline-block" aria-hidden="true">
                 <MaterialIcon name="fingerprint" size={48} />
               </span>
               <h2 className="font-display text-on-surface text-3xl font-medium tracking-tight sm:text-4xl">
-                Personal by design
+                Private when personal. Shared when intentional.
               </h2>
               <p className="text-on-surface-variant mt-4 text-lg">
-                Cognaxis is built on rigorous isolation invariants. We don&apos;t make impossible
-                security promises, but we do enforce strict controls.
+                Choose where each new reflection belongs. Personal reflections stay private, while
+                team context is visible only inside its shared space.
               </p>
             </div>
 
@@ -271,7 +332,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
         <section className="bg-surface-container-low border-outline-variant border-t py-24">
           <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
             <h2 className="font-display text-on-surface text-3xl font-medium tracking-tight sm:text-4xl">
-              Make space for clearer thinking.
+              Give your thinking somewhere to land.
             </h2>
             <div className="mt-10 flex justify-center">
               <button
@@ -279,7 +340,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
                 onClick={onOpenAuth}
                 className="bg-primary text-on-primary focus-visible:outline-primary flex min-h-14 w-full items-center justify-center gap-2 rounded-full px-8 text-base font-medium transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
               >
-                Start journaling
+                Start capturing
                 <MaterialIcon name="arrow_forward" size={18} />
               </button>
             </div>
@@ -315,7 +376,7 @@ export function LandingPage({ onOpenAuth }: LandingPageProps) {
             </a>
           </nav>
           <p className="text-on-surface-variant text-sm">
-            &copy; {new Date().getFullYear()} Cognaxis. Personal intelligence.
+            &copy; {new Date().getFullYear()} Cognaxis. Personal and shared reflection.
           </p>
         </div>
       </footer>

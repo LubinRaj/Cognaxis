@@ -64,6 +64,36 @@ describe("reflection history pane", () => {
     expect(within(historyPane()).getByText("Weekly review")).toBeInTheDocument();
   });
 
+  it("keeps archives out of Home and does not fetch them in the background", async () => {
+    api.sessions = [
+      makeSession({ id: "s1", title: "Active reflection" }),
+      makeSession({ id: "s2", title: "Archived reflection", status: "archived" }),
+    ];
+    api.details.set("s1", makeDetail({ id: "s1", title: "Active reflection" }));
+
+    await renderWorkspace();
+    expect(await within(historyPane()).findByText("Active reflection")).toBeInTheDocument();
+    expect(within(historyPane()).queryByText("Archived reflection")).not.toBeInTheDocument();
+    expect(within(historyPane()).queryByText(/Archives/)).not.toBeInTheDocument();
+    expect(api.routes.some((route) => route.url.includes("status=archived"))).toBe(false);
+  });
+
+  it("shows explicit next steps as open loops with a weekly review path", async () => {
+    api.sessions = [makeSession({ id: "s1", title: "Launch decision" })];
+    api.details.set("s1", makeDetail({ id: "s1", title: "Launch decision" }));
+    api.openLoops = [{
+      sessionId: "s1",
+      title: "Launch decision",
+      captureType: "decision",
+      date: "2026-09-03",
+      text: "Confirm the release checklist.",
+    }];
+    await renderWorkspace();
+
+    expect(await within(historyPane()).findByText("Confirm the release checklist.")).toBeInTheDocument();
+    expect(within(historyPane()).getByRole("link", { name: "Weekly view" })).toHaveAttribute("href", "/app/insights");
+  });
+
   it("uses plain product language with no organisation or security jargon", async () => {
     api.sessions = [makeSession({ id: "s1" })];
     api.details.set("s1", makeDetail({ id: "s1" }));
@@ -102,6 +132,27 @@ describe("reflection history pane", () => {
     expect(within(historyPane()).getByText("Weekly review")).toBeInTheDocument();
     expect(within(historyPane()).queryByText("Architecture decisions")).not.toBeInTheDocument();
     expect(screen.getByText("Matching reflections (1)")).toBeInTheDocument();
+  });
+
+  it("filters reflections by one or more canonical tags from the filter popover", async () => {
+    const user = userEvent.setup();
+    api.sessions = [
+      makeSession({ id: "s1", title: "Architecture decisions", tags: ["work"] }),
+      makeSession({ id: "s2", title: "Family plans", tags: ["family"] }),
+    ];
+    api.details.set("s1", makeDetail({ id: "s1", title: "Architecture decisions", tags: ["work"] }));
+    await renderWorkspace();
+    await within(historyPane()).findByText("Family plans");
+
+    await user.click(screen.getByRole("button", { name: "Reflection filters" }));
+    const filters = screen.getByRole("dialog", { name: "Reflection filters" });
+    await user.click(within(filters).getByRole("button", { name: "work" }));
+
+    expect(within(historyPane()).getByText("Architecture decisions")).toBeInTheDocument();
+    expect(within(historyPane()).queryByText("Family plans")).not.toBeInTheDocument();
+
+    await user.click(within(filters).getByRole("button", { name: "family" }));
+    expect(within(historyPane()).getByText("Family plans")).toBeInTheDocument();
   });
 
   it("explains an empty filter result and offers a way back", async () => {

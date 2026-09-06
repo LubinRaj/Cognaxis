@@ -6,7 +6,9 @@ import type { OrganizationRole } from "../../shared/schemas.js";
 export type OrganizationAction =
   | "view"
   | "createSession"
+  | "renameSession"
   | "sendMessage"
+  | "updateSessionTags"
   | "summarize"
   | "deleteOwnSession"
   | "deleteOtherSession"
@@ -20,7 +22,9 @@ export type OrganizationAction =
 const MATRIX: Record<OrganizationAction, readonly OrganizationRole[]> = {
   view: ["owner", "admin", "member", "viewer"],
   createSession: ["owner", "admin", "member"],
+  renameSession: ["owner", "admin", "member"],
   sendMessage: ["owner", "admin", "member"],
+  updateSessionTags: ["owner", "admin", "member"],
   summarize: ["owner", "admin", "member"],
   deleteOwnSession: ["owner", "admin", "member"],
   deleteOtherSession: ["owner", "admin"],

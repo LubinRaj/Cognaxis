@@ -3,6 +3,7 @@ import type { JournalMessage, SummaryOutput } from "../../src/shared/schemas.js"
 import { createApp } from "../../src/server/app.js";
 import { loadConfig, type AppConfig } from "../../src/server/config/env.js";
 import { InMemoryInsightRepository } from "../../src/server/data/in-memory-insight-repository.js";
+import { InMemoryAttachmentRepository } from "../../src/server/data/in-memory-attachment-repository.js";
 import { InMemoryJournalRepository } from "../../src/server/data/in-memory-journal-repository.js";
 import { InMemoryOrganizationRepository } from "../../src/server/data/in-memory-organization-repository.js";
 import { InMemoryOrganizationWorkspaceRepository } from "../../src/server/data/in-memory-organization-workspace-repository.js";
@@ -157,6 +158,7 @@ export async function createTestApp(overrides: TestAppOverrides = {}) {
 
   const usage = overrides.usage ?? new InMemoryUsageRepository();
   const usageRecorder = new UsageRecorder(usage, overrides.now);
+  const attachments = new InMemoryAttachmentRepository();
 
   const invalidation = new InsightInvalidationService(insights, preferences, overrides.now);
   const signalService = new SignalService(signals, repository, overrides.now, invalidation);
@@ -176,9 +178,11 @@ export async function createTestApp(overrides: TestAppOverrides = {}) {
     [
       (uid, sessionId) => signalService.removeForDeletedSession(uid, sessionId),
       (uid, sessionId) => invalidation.onSessionDeleted(uid, sessionId),
+      (uid, sessionId) => attachments.deleteForSession({ type: "personal", scopeId: uid }, sessionId),
     ],
     [(uid, sessionCreatedAt) => invalidation.onContentChanged(uid, sessionCreatedAt)],
     usageRecorder,
+    attachments,
   );
   const dashboardService = new DashboardService(signals, repository, preferences, overrides.now);
   const organizations = overrides.organizations ?? new InMemoryOrganizationRepository(overrides.now);
@@ -193,6 +197,7 @@ export async function createTestApp(overrides: TestAppOverrides = {}) {
     model,
     overrides.now,
     usageRecorder,
+    attachments,
   );
   const platformAdminService = new PlatformAdminService(
     platformUsers,
@@ -227,5 +232,6 @@ export async function createTestApp(overrides: TestAppOverrides = {}) {
     verifier,
     model,
     insightModel,
+    attachments,
   };
 }

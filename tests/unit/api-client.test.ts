@@ -138,9 +138,22 @@ describe("ApiClient bearer attachment and bounded recovery", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("does not retry rate limits, validation failures, or server errors", async () => {
+  it("retries one transient rate-limited read after the server cooldown", async () => {
+    responses.push(
+      new Response(JSON.stringify({ error: { code: "RATE_LIMITED", message: "Generic failure." } }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "0" },
+      }),
+      jsonResponse(200, { sessions: [] }),
+    );
+
+    await expect(client().listSessions()).resolves.toEqual([]);
+    expect(calls).toHaveLength(2);
+    expect(getIdToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry rate-limited writes, validation failures, or server errors", async () => {
     for (const [status, code] of [
-      [429, "RATE_LIMITED"],
       [400, "INVALID_REQUEST"],
       [404, "NOT_FOUND"],
       [500, "INTERNAL_ERROR"],
@@ -151,17 +164,21 @@ describe("ApiClient bearer attachment and bounded recovery", () => {
       expect(calls).toHaveLength(1);
     }
 
+    responses.push(failure(429, "RATE_LIMITED"));
+    await expect(client().createSession()).rejects.toBeInstanceOf(ApiError);
+    expect(calls).toHaveLength(2);
+
     expect(onSessionExpired).not.toHaveBeenCalled();
     expect(getIdToken).not.toHaveBeenCalledWith(true);
   });
 
-  it("does not replay a recent-authentication rejection but does end the session", async () => {
+  it("does not replay a recent-authentication rejection and keeps the session intact", async () => {
     responses.push(failure(401, "RECENT_AUTH_REQUIRED"));
 
     await expect(client().deleteSession("s1")).rejects.toBeInstanceOf(ApiError);
 
     expect(calls).toHaveLength(1);
-    expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    expect(onSessionExpired).not.toHaveBeenCalled();
   });
 
   it("replays a write only because the server rejected it before executing", async () => {

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type {
   AuditEvent,
+  OrganizationEodSettings,
+  OrganizationEodSettingsInput,
+  OrganizationEodStatus,
   Organization,
   OrganizationInvite,
   OrganizationMembership,
@@ -27,6 +30,8 @@ type OrgStore = {
   members: Map<string, OrganizationMembership>;
   invites: Map<string, OrganizationInvite>;
   audit: AuditEvent[];
+  eodSettings: OrganizationEodSettings | null;
+  eodStatus: Map<string, OrganizationEodStatus>;
 };
 
 export class InMemoryOrganizationRepository implements OrganizationRepository {
@@ -122,6 +127,8 @@ export class InMemoryOrganizationRepository implements OrganizationRepository {
       members: new Map([[input.ownerUid, membership]]),
       invites: new Map(),
       audit: [],
+      eodSettings: null,
+      eodStatus: new Map(),
     };
     this.organizations.set(organization.id, store);
     this.syncEdge(store, membership);
@@ -432,5 +439,68 @@ export class InMemoryOrganizationRepository implements OrganizationRepository {
     const store = this.store(orgId);
     if (!store) return [];
     return store.audit.slice(0, limit).map((event) => structuredClone(event));
+  }
+
+  async getEodSettings(orgId: string): Promise<OrganizationEodSettings | null> {
+    const store = this.store(orgId);
+    return store?.eodSettings ? structuredClone(store.eodSettings) : null;
+  }
+
+  async setEodSettings(
+    orgId: string,
+    input: OrganizationEodSettingsInput,
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodSettings> {
+    const store = this.store(orgId);
+    if (!store) throw new ConstraintViolation();
+    this.requireActor(store, actor);
+    const settings: OrganizationEodSettings = {
+      ...structuredClone(input),
+      updatedBy: actor.uid,
+      updatedAt: this.now().toISOString(),
+    };
+    store.eodSettings = settings;
+    return structuredClone(settings);
+  }
+
+  async getEodStatus(orgId: string, uid: string, localDate: string): Promise<OrganizationEodStatus | null> {
+    const store = this.store(orgId);
+    const status = store?.eodStatus.get(`${uid}_${localDate}`);
+    return status ? structuredClone(status) : null;
+  }
+
+  async countEodSubmissions(orgId: string, localDate: string): Promise<number> {
+    const store = this.store(orgId);
+    if (!store) return 0;
+    return [...store.eodStatus.values()].filter(
+      (status) => status.localDate === localDate && status.submittedSessionId !== null,
+    ).length;
+  }
+
+  async setEodStatus(
+    orgId: string,
+    uid: string,
+    localDate: string,
+    changes: { dismissed?: boolean; submittedSessionId?: string | null },
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodStatus> {
+    const store = this.store(orgId);
+    if (!store) throw new ConstraintViolation();
+    this.requireActor(store, actor);
+    if (actor.uid !== uid) throw new ConstraintViolation();
+    const key = `${uid}_${localDate}`;
+    const current = store.eodStatus.get(key);
+    const status: OrganizationEodStatus = {
+      uid,
+      localDate,
+      dismissed: changes.dismissed ?? current?.dismissed ?? false,
+      submittedSessionId:
+        changes.submittedSessionId !== undefined
+          ? changes.submittedSessionId
+          : current?.submittedSessionId ?? null,
+      updatedAt: this.now().toISOString(),
+    };
+    store.eodStatus.set(key, status);
+    return structuredClone(status);
   }
 }

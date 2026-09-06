@@ -95,6 +95,20 @@ describe("IconButton", () => {
     render(<IconButton icon="search" label="Search" active />);
     expect(screen.getByRole("button", { name: "Search" })).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("keeps an explicit icon color when the button has a filled tone", () => {
+    render(
+      <IconButton
+        icon="check"
+        label="Finish recording"
+        tone="primary"
+        iconClassName="text-on-primary"
+        className="bg-primary text-on-primary"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Finish recording" }).querySelector("svg")).toHaveClass("text-on-primary");
+  });
 });
 
 describe("InlineAlert", () => {

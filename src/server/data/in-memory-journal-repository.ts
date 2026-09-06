@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  CaptureType,
   JournalMessage,
   JournalSession,
   PersonalMemory,
@@ -10,12 +11,15 @@ import type {
   SaveMessageExchangeInput,
   SaveSummaryInput,
 } from "./journal-repository.js";
+import { isPlaceholderReflectionTitle } from "../../shared/reflection-title.js";
+import { sanitizeReflectionTags } from "../../shared/reflection-tags.js";
 
 type UserStore = {
   sessions: Map<string, JournalSession>;
   messages: Map<string, JournalMessage[]>;
   memories: Map<string, PersonalMemory>;
   exchanges: Map<string, PersistedMessageExchange>;
+  tags: Map<string, string>;
 };
 
 export class InMemoryJournalRepository implements JournalRepository {
@@ -37,12 +41,17 @@ export class InMemoryJournalRepository implements JournalRepository {
       messages: new Map(),
       memories: new Map(),
       exchanges: new Map(),
+      tags: new Map(),
     };
     this.users.set(uid, created);
     return created;
   }
 
-  async createSession(uid: string, title: string): Promise<JournalSession> {
+  async createSession(
+    uid: string,
+    title: string,
+    captureType: CaptureType = "reflection",
+  ): Promise<JournalSession> {
     const now = this.clock();
     const session: JournalSession = {
       id: randomUUID(),
@@ -50,6 +59,8 @@ export class InMemoryJournalRepository implements JournalRepository {
       status: "active",
       messageCount: 0,
       summarizedMessageCount: 0,
+      captureType,
+      tags: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -58,8 +69,42 @@ export class InMemoryJournalRepository implements JournalRepository {
     return structuredClone(session);
   }
 
-  async listSessions(uid: string, limit: number): Promise<JournalSession[]> {
+  async renameSession(uid: string, sessionId: string, title: string): Promise<JournalSession> {
+    const session = this.user(uid).sessions.get(sessionId);
+    if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
+    session.title = title;
+    session.updatedAt = this.clock();
+    return structuredClone(session);
+  }
+
+  async setSessionTags(uid: string, sessionId: string, tags: string[]): Promise<JournalSession> {
+    const session = this.user(uid).sessions.get(sessionId);
+    if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
+    session.tags = [...tags];
+    session.updatedAt = this.clock();
+    return structuredClone(session);
+  }
+
+  async listTags(uid: string, limit: number): Promise<string[]> {
+    const store = this.user(uid);
+    // Include historic session tags while the persistent catalog is gradually populated.
+    const known = [
+      ...store.tags.values(),
+      ...[...store.sessions.values()].flatMap((session) => session.tags),
+    ];
+    return sanitizeReflectionTags(known, limit).sort((left, right) => left.localeCompare(right));
+  }
+
+  async registerTags(uid: string, tags: string[]): Promise<void> {
+    const store = this.user(uid);
+    for (const tag of sanitizeReflectionTags(tags, 50)) store.tags.set(tag, tag);
+  }
+
+  async listSessions(uid: string, limit: number, status: JournalSession["status"] = "active"): Promise<JournalSession[]> {
     return [...this.user(uid).sessions.values()]
+      .filter((session) => session.status === status)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, limit)
       .map((session) => structuredClone(session));
@@ -76,7 +121,7 @@ export class InMemoryJournalRepository implements JournalRepository {
     limit: number,
   ): Promise<JournalSession[]> {
     return [...this.user(uid).sessions.values()]
-      .filter((session) => session.createdAt >= sinceIso)
+      .filter((session) => session.status === "active" && session.createdAt >= sinceIso)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, limit)
       .map((session) => structuredClone(session));
@@ -113,6 +158,7 @@ export class InMemoryJournalRepository implements JournalRepository {
 
     const session = store.sessions.get(sessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
     if (session.messageCount + 2 > input.maxMessageCount) {
       throw new Error("SESSION_LIMIT_REACHED");
     }
@@ -122,6 +168,7 @@ export class InMemoryJournalRepository implements JournalRepository {
       id: randomUUID(),
       role: "user",
       content: input.userContent,
+      ...(input.attachmentIds && input.attachmentIds.length > 0 ? { attachmentIds: [...input.attachmentIds] } : {}),
       createdAt,
     };
     const assistantMessage: JournalMessage = {
@@ -132,6 +179,9 @@ export class InMemoryJournalRepository implements JournalRepository {
     };
     store.messages.get(sessionId)?.push(userMessage, assistantMessage);
     session.messageCount += 2;
+    const placeholderTitle = isPlaceholderReflectionTitle(session.title);
+    if (input.title && placeholderTitle) session.title = input.title;
+    if (input.tags && placeholderTitle) session.tags = [...input.tags];
     session.updatedAt = createdAt;
 
     const exchange: PersistedMessageExchange = {
@@ -147,6 +197,7 @@ export class InMemoryJournalRepository implements JournalRepository {
     const store = this.user(uid);
     const session = store.sessions.get(input.sourceSessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
     const now = this.clock();
     const existing = store.memories.get(input.sourceSessionId);
     const memory: PersonalMemory = {
@@ -168,6 +219,14 @@ export class InMemoryJournalRepository implements JournalRepository {
   async getSummary(uid: string, sessionId: string): Promise<PersonalMemory | null> {
     const memory = this.user(uid).memories.get(sessionId);
     return memory ? structuredClone(memory) : null;
+  }
+
+  async setSessionStatus(uid: string, sessionId: string, status: JournalSession["status"]): Promise<JournalSession | null> {
+    const session = this.user(uid).sessions.get(sessionId);
+    if (!session) return null;
+    session.status = status;
+    session.updatedAt = this.clock();
+    return structuredClone(session);
   }
 
   async deleteSession(uid: string, sessionId: string): Promise<boolean> {

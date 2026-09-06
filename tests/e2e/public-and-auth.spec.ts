@@ -9,10 +9,12 @@ test.describe("public pages and application shell", () => {
     expect(health.status()).toBe(200);
 
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
 
     await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "How it works" }).click();
     await expect(page.getByRole("heading", { name: "How it works" })).toBeVisible();
+    await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Intelligence" }).click();
+    await expect(page.getByRole("heading", { name: "A second brain that keeps context" })).toBeVisible();
 
     await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Terms" })).toBeVisible();
@@ -29,7 +31,7 @@ test.describe("public pages and application shell", () => {
     await expect(page.getByRole("heading", { name: "Privacy", exact: true })).toBeVisible();
 
     await page.getByRole("link", { name: "← Back to Cognaxis" }).click();
-    await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
   });
 
   test("light and dark themes apply and persist across refresh", async ({ page }) => {
@@ -70,7 +72,7 @@ test.describe("public pages and application shell", () => {
     // A signed-out visit to a protected path lands on the public entry with the intended path
     // remembered for after authentication.
     await page.goto("/app/insights");
-    await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
 
     await page.getByRole("banner").getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
@@ -82,7 +84,7 @@ test.describe("public pages and application shell", () => {
   test("unknown routes redirect to the intended destinations", async ({ page }) => {
     await page.goto("/no-such-page");
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
 
     const account = await createVerifiedUser("unknownroute");
     await signIn(page, account);
@@ -157,7 +159,7 @@ test.describe("authentication", () => {
       // The signed-in session still holds pre-verification claims, so the application asks the
       // user to confirm; the visible re-check refreshes the token and opens the journal.
       await page.getByRole("button", { name: "Continue to Cognaxis" }).click();
-      const journalHeading = page.getByRole("heading", { name: "Your private journal" });
+      const journalHeading = page.getByRole("heading", { name: "Your personal space" });
       const recheck = page.getByRole("button", { name: "I've verified my email" });
       await expect(journalHeading.or(recheck).first()).toBeVisible();
       if (await recheck.isVisible()) {
@@ -174,11 +176,11 @@ test.describe("authentication", () => {
     await signIn(page, account);
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Your private journal" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your personal space" })).toBeVisible();
 
     await signOut(page, account);
     await page.goBack();
-    await expect(page.getByRole("heading", { name: "Your private journal" })).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Your personal space" })).not.toBeVisible();
     await expect(page.getByLabel("Write your reflection")).toHaveCount(0);
   });
 
@@ -221,7 +223,7 @@ test.describe("authentication", () => {
       ).toBeVisible();
       await page.getByRole("button", { name: "Return to sign in" }).click();
       await expect(
-        page.getByRole("heading", { name: /Think freely|Welcome back/ }).first(),
+        page.getByRole("heading", { name: /Think clearly|Welcome back/ }).first(),
       ).toBeVisible();
     });
   });

@@ -259,9 +259,13 @@ export class InsightService {
       this.signals.listRange(uid, bounds.fromLocalDate, bounds.toLocalDate, SOURCE_QUERY_LIMIT),
       this.signals.listRange(uid, previous.fromLocalDate, previous.toLocalDate, SOURCE_QUERY_LIMIT),
     ]);
+    const [activeSignals, activePreviousSignals] = await Promise.all([
+      this.onlyActiveSignals(uid, signals),
+      this.onlyActiveSignals(uid, previousSignals),
+    ]);
 
-    const metrics = computePeriodMetrics(sessions.length, signals, previousSignals);
-    const fingerprint = computeSourceFingerprint(sessions, signals);
+    const metrics = computePeriodMetrics(sessions.length, activeSignals, activePreviousSignals);
+    const fingerprint = computeSourceFingerprint(sessions, activeSignals);
 
     const existing = await this.insights.get(uid, periodKey);
     if (existing) {
@@ -287,7 +291,7 @@ export class InsightService {
       periodEndExclusive: addDays(bounds.toLocalDate, 1),
       timezone,
       sourceSessionIds: sessions.map((session) => session.id),
-      sourceSignalSessionIds: signals.map((signal) => signal.sourceSessionId),
+      sourceSignalSessionIds: activeSignals.map((signal) => signal.sourceSessionId),
       sourceFingerprint: fingerprint,
       metrics,
       generationRequestId: requestId,
@@ -299,7 +303,7 @@ export class InsightService {
       schemaVersion: 1,
     };
 
-    if (sessions.length === 0 && signals.length === 0) {
+    if (sessions.length === 0 && activeSignals.length === 0) {
       const insight = await this.insights.save(uid, {
         ...base,
         model: "deterministic",
@@ -319,7 +323,7 @@ export class InsightService {
     const evidence = await this.loadEvidence(uid, sessions, timezone);
     const placeLabels = [
       ...new Set(
-        signals
+        activeSignals
           .map((signal) => signal.location?.label)
           .filter((label): label is string => typeof label === "string"),
       ),
@@ -348,7 +352,7 @@ export class InsightService {
     // Every cited record must belong to the authorized source set for this exact period.
     const allowedIds = new Set([
       ...sessions.map((session) => session.id),
-      ...signals.map((signal) => signal.sourceSessionId),
+      ...activeSignals.map((signal) => signal.sourceSessionId),
     ]);
     for (const pattern of parsedNarrative.data.patterns) {
       for (const citedId of pattern.evidenceSessionIds) {
@@ -399,6 +403,17 @@ export class InsightService {
       });
     }
     return evidence;
+  }
+
+  private async onlyActiveSignals(uid: string, signals: PersonalSignal[]): Promise<PersonalSignal[]> {
+    const statuses = await Promise.all(
+      [...new Set(signals.map((signal) => signal.sourceSessionId))].map(async (sessionId) => [
+        sessionId,
+        (await this.journal.getSession(uid, sessionId))?.status === "active",
+      ] as const),
+    );
+    const activeIds = new Set(statuses.filter(([, active]) => active).map(([sessionId]) => sessionId));
+    return signals.filter((signal) => activeIds.has(signal.sourceSessionId));
   }
 }
 

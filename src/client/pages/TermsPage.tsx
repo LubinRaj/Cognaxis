@@ -28,7 +28,7 @@ export function TermsPage() {
           be read.
         </p>
 
-        <Section title="What Cognaxis is — and is not">
+        <Section title="What Cognaxis is - and is not">
           <p>
             Cognaxis is a personal reflection journal with AI-assisted summaries and insights.
             Insights describe patterns in your own reflections. They are not medical advice, a

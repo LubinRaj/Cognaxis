@@ -15,6 +15,8 @@ export type MaterialIconName =
   | "error"
   | "memory"
   | "edit_document"
+  | "edit"
+  | "label"
   | "forum"
   | "bookmark_added"
   | "fingerprint"
@@ -40,9 +42,11 @@ export type MaterialIconName =
   | "add"
   | "more_vert"
   | "download"
+  | "archive"
   | "delete"
   | "content_copy"
   | "send"
+  | "filter_list"
   | "expand_more"
   | "expand_less"
   | "chat_bubble"
@@ -57,10 +61,12 @@ export type MaterialIconName =
   | "admin_panel_settings"
   | "mood"
   | "bolt"
+  | "local_fire_department"
   | "domain"
   | "person_add"
   | "calendar_today"
-  | "history";
+  | "history"
+  | "mic";
 
 interface MaterialIconProps {
   name: MaterialIconName;
@@ -273,6 +279,20 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
         </svg>
       );
 
+    case "edit":
+      return (
+        <svg viewBox="0 0 24 24" width={pixelSize} height={pixelSize} fill="currentColor" className={className} aria-hidden="true">
+          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+        </svg>
+      );
+
+    case "label":
+      return (
+        <svg viewBox="0 0 24 24" width={pixelSize} height={pixelSize} fill="currentColor" className={className} aria-hidden="true">
+          <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5H5c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h11c.67 0 1.27-.33 1.63-.84L22 12 17.63 5.84zM15.99 17H5V7h10.99L19.55 12 15.99 17z" />
+        </svg>
+      );
+
     case "forum":
       return (
         <svg
@@ -410,6 +430,20 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+        </svg>
+      );
+
+    case "filter_list":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
         </svg>
       );
 
@@ -621,6 +655,20 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="M12 16l-5-5 1.41-1.41L11 12.17V4h2v8.17l2.59-2.58L17 11l-5 5zM5 18h14v2H5v-2z" />
+        </svg>
+      );
+
+    case "archive":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M20.54 5.23 19.4 3.84A2 2 0 0 0 17.85 3H6.15a2 2 0 0 0-1.55.84L3.46 5.23A2 2 0 0 0 3 6.5V19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.5a2 2 0 0 0-.46-1.27zM6.15 5h11.7l.82 1H5.33l.82-1zM19 19H5V8h14v11zm-3-7H8v2h8v-2z" />
         </svg>
       );
 
@@ -863,6 +911,20 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
         </svg>
       );
 
+    case "local_fire_department":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12.93 2.16c.36 2.36-.7 4.08-2.06 5.45C9.77 8.71 9 9.92 9 11.5c0 .72.2 1.39.54 1.96.08-1.22.7-2.25 1.8-3.14.88-.72 1.54-1.56 1.61-2.82 2.45 1.43 4.05 4.03 4.05 7 0 1.31-.35 2.54-.96 3.6A6.98 6.98 0 0 0 19 13c0-3.68-2.25-7.03-6.07-10.84zM12 22a7 7 0 0 1-7-7c0-2.88 1.62-5.26 3.37-6.99-.14.49-.2.99-.2 1.49 0 1.79.94 3.34 2.35 4.22-.2-.56-.3-1.14-.3-1.72 0-2.27 1.3-3.8 2.95-5.36-.04.42-.02.83.07 1.21C14.3 9.3 16 11.32 16 14a4 4 0 0 1-1.02 2.67c.04-.22.06-.44.06-.67 0-1.12-.38-2.18-1.08-3.01-.12 1.03-.58 1.78-1.27 2.36-.9.76-1.35 1.55-1.35 2.4 0 1.02.4 1.92 1.05 2.58-.13.01-.26.02-.39.02z" />
+        </svg>
+      );
+
     case "domain":
       return (
         <svg
@@ -916,6 +978,20 @@ export const MaterialIcon: React.FC<MaterialIconProps> = ({
           aria-hidden="true"
         >
           <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z" />
+        </svg>
+      );
+
+    case "mic":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width={pixelSize}
+          height={pixelSize}
+          fill="currentColor"
+          className={className}
+          aria-hidden="true"
+        >
+          <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H8v2h8v-2h-3v-2.08A7 7 0 0 0 19 12h-2z" />
         </svg>
       );
 

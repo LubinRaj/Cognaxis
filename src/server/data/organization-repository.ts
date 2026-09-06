@@ -1,5 +1,9 @@
 import type {
+  CaptureType,
   AuditEvent,
+  OrganizationEodSettings,
+  OrganizationEodSettingsInput,
+  OrganizationEodStatus,
   Organization,
   OrganizationInvite,
   OrganizationMembership,
@@ -125,18 +129,39 @@ export interface OrganizationRepository {
   }): Promise<AcceptInviteResult>;
 
   listAuditEvents(orgId: string, limit: number): Promise<AuditEvent[]>;
+  getEodSettings(orgId: string): Promise<OrganizationEodSettings | null>;
+  setEodSettings(
+    orgId: string,
+    input: OrganizationEodSettingsInput,
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodSettings>;
+  getEodStatus(orgId: string, uid: string, localDate: string): Promise<OrganizationEodStatus | null>;
+  countEodSubmissions(orgId: string, localDate: string): Promise<number>;
+  setEodStatus(
+    orgId: string,
+    uid: string,
+    localDate: string,
+    changes: { dismissed?: boolean; submittedSessionId?: string | null },
+    actor: ActorConstraint,
+  ): Promise<OrganizationEodStatus>;
 }
 
 export type OrganizationExchange = {
   userMessage: OrganizationMessage;
   assistantMessage: OrganizationMessage;
   messageCount: number;
+  session?: OrganizationSession;
 };
 
 export type SaveOrganizationExchangeInput = {
   requestId: string;
   userContent: string;
   assistantContent: string;
+  /** Applied only when the shared session still has its untouched placeholder title. */
+  title?: string;
+  /** Applied only when the shared session still has its untouched placeholder title. */
+  tags?: string[];
+  attachmentIds?: string[];
   authorUid: string;
   maxMessageCount: number;
 };
@@ -148,8 +173,28 @@ export type SaveOrganizationSummaryInput = SummaryOutput & {
 };
 
 export interface OrganizationWorkspaceRepository {
-  createSession(orgId: string, actor: ActorConstraint, title: string): Promise<OrganizationSession>;
-  listSessions(orgId: string, limit: number): Promise<OrganizationSession[]>;
+  createSession(
+    orgId: string,
+    actor: ActorConstraint,
+    title: string,
+    captureType?: CaptureType,
+  ): Promise<OrganizationSession>;
+  listSessions(orgId: string, limit: number, status?: OrganizationSession["status"]): Promise<OrganizationSession[]>;
+  renameSession(
+    orgId: string,
+    sessionId: string,
+    title: string,
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession>;
+  setSessionTags(
+    orgId: string,
+    sessionId: string,
+    tags: string[],
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession>;
+  /** Catalogued canonical labels scoped to exactly one organization. */
+  listTags(orgId: string, limit: number): Promise<string[]>;
+  registerTags(orgId: string, tags: string[], actor: ActorConstraint): Promise<void>;
   getSession(orgId: string, sessionId: string): Promise<OrganizationSession | null>;
   listMessages(orgId: string, sessionId: string, limit: number): Promise<OrganizationMessage[]>;
   getMessageExchange(
@@ -169,6 +214,12 @@ export interface OrganizationWorkspaceRepository {
     actor: ActorConstraint,
   ): Promise<OrganizationSummary>;
   getSummary(orgId: string, sessionId: string): Promise<OrganizationSummary | null>;
+  setSessionStatus(
+    orgId: string,
+    sessionId: string,
+    status: OrganizationSession["status"],
+    actor: SessionActorConstraint,
+  ): Promise<OrganizationSession | null>;
   deleteSession(
     orgId: string,
     sessionId: string,

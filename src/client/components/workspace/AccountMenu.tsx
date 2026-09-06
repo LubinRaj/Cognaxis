@@ -1,11 +1,15 @@
-import { useState } from "react";
-import type { User } from "firebase/auth";
+import { useEffect, useRef, useState } from "react";
+import { updateProfile, type User } from "firebase/auth";
+import { useNavigate } from "react-router-dom";
 import { useTheme, type ThemeOption } from "../../hooks/useTheme";
+import { useApiClient } from "../../lib/use-api-client";
+import { ApiError } from "../../lib/api-client";
 import { MaterialIcon, type MaterialIconName } from "../MaterialIcon";
 import { Avatar } from "../ui/Avatar";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Menu, type MenuItemDescriptor } from "../ui/Menu";
+import { TextField } from "../ui/TextField";
 
 const themeOptions: { value: ThemeOption; label: string; icon: MaterialIconName }[] = [
   { value: "system", label: "System", icon: "desktop_windows" },
@@ -13,27 +17,138 @@ const themeOptions: { value: ThemeOption; label: string; icon: MaterialIconName 
   { value: "dark", label: "Dark", icon: "dark_mode" },
 ];
 
+const PROFILE_PHOTO_MAX_BYTES = 1_000_000;
+const PROFILE_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 type AccountMenuProps = {
   user: User;
   onSignOut: () => void;
   signingOut: boolean;
+  compact?: boolean;
+  align?: "start" | "end";
 };
 
-export function AccountMenu({ user, onSignOut, signingOut }: AccountMenuProps) {
+export function AccountMenu({
+  user,
+  onSignOut,
+  signingOut,
+  compact = false,
+  align = "start",
+}: AccountMenuProps) {
+  const navigate = useNavigate();
+  const api = useApiClient(user);
   const { theme, setTheme } = useTheme();
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState(user.displayName?.trim() ?? "");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState(user.photoURL ?? "");
+  const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
+  const [profilePhotoRemoved, setProfilePhotoRemoved] = useState(false);
+  const [profilePending, setProfilePending] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const profilePreviewRef = useRef<string | null>(null);
 
-  const displayName = user.displayName?.trim() ?? "";
+  const displayName = profileName.trim();
   const email = user.email ?? "";
+  const currentTheme = themeOptions.find((option) => option.value === theme) ?? themeOptions[0];
+
+  function openProfile() {
+    setProfileName(user.displayName?.trim() ?? "");
+    setProfilePhotoUrl(user.photoURL ?? "");
+    setProfilePhotoFile(null);
+    setProfilePhotoRemoved(false);
+    if (profilePreviewRef.current) URL.revokeObjectURL(profilePreviewRef.current);
+    profilePreviewRef.current = null;
+    setProfilePhotoPreview(null);
+    setProfileError(null);
+    setProfileOpen(true);
+  }
+
+  useEffect(() => {
+    let active = true;
+    void api.getProfilePhoto().then((photoUrl) => {
+      if (active && photoUrl) setProfilePhotoUrl(photoUrl);
+    }).catch(() => {
+      // The account menu remains usable with Firebase's cached profile photo if the optional
+      // profile storage read is temporarily unavailable.
+    });
+    return () => {
+      active = false;
+      if (profilePreviewRef.current) URL.revokeObjectURL(profilePreviewRef.current);
+    };
+  }, [api]);
+
+  function handleProfilePhotoChange(file: File | undefined) {
+    if (!file) return;
+    if (!PROFILE_PHOTO_TYPES.has(file.type) || file.size > PROFILE_PHOTO_MAX_BYTES) {
+      setProfileError("Choose a JPEG, PNG, or WebP image up to 1 MB.");
+      return;
+    }
+    if (profilePreviewRef.current) URL.revokeObjectURL(profilePreviewRef.current);
+    const preview = URL.createObjectURL(file);
+    profilePreviewRef.current = preview;
+    setProfilePhotoFile(file);
+    setProfilePhotoPreview(preview);
+    setProfilePhotoRemoved(false);
+    setProfileError(null);
+  }
+
+  function removeProfilePhoto() {
+    if (profilePreviewRef.current) URL.revokeObjectURL(profilePreviewRef.current);
+    profilePreviewRef.current = null;
+    setProfilePhotoFile(null);
+    setProfilePhotoPreview(null);
+    setProfilePhotoRemoved(true);
+    setProfilePhotoUrl("");
+    setProfileError(null);
+  }
 
   const items: MenuItemDescriptor[] = [
-    ...themeOptions.map((option) => ({
-      id: `theme-${option.value}`,
-      label: option.label,
-      icon: option.icon,
-      description: theme === option.value ? "Selected" : undefined,
-      onSelect: () => setTheme(option.value),
-    })),
+    {
+      id: "profile",
+      label: "Your profile",
+      icon: "person",
+      onSelect: openProfile,
+    },
+    {
+      id: "archives",
+      label: "Archives",
+      icon: "archive",
+      onSelect: () => void navigate("/app/archives"),
+    },
+    {
+      id: "theme",
+      label: "Theme",
+      icon: currentTheme.icon,
+      description: currentTheme.label,
+      onSelect: () => undefined,
+      submenu: (
+        <div role="group" aria-label="Theme options" className="flex gap-1">
+          {themeOptions.map((option) => {
+            const selected = theme === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                aria-label={option.label}
+                onClick={() => setTheme(option.value)}
+                className={`focus-visible:outline-focus-ring flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                  selected
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                }`}
+              >
+                <MaterialIcon name={option.icon} size={15} />
+                <span className="truncate">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      ),
+    },
     {
       id: "privacy",
       label: "How your journal is protected",
@@ -55,11 +170,11 @@ export function AccountMenu({ user, onSignOut, signingOut }: AccountMenuProps) {
     <>
       <Menu
         label="Account and appearance"
-        align="start"
+        align={align}
         placement="top"
         header={
           <div className="flex items-center gap-3">
-            <Avatar displayName={displayName} email={email} />
+            <Avatar displayName={displayName} email={email} photoUrl={profilePhotoUrl} />
             <div className="min-w-0">
               {displayName && (
                 <p className="text-on-surface truncate text-sm font-medium">{displayName}</p>
@@ -83,18 +198,27 @@ export function AccountMenu({ user, onSignOut, signingOut }: AccountMenuProps) {
           <button
             {...props}
             type="button"
-            className="hover:bg-surface-container-high focus-visible:outline-focus-ring flex w-full min-h-14 items-center gap-3 rounded-2xl p-2 text-left transition-colors duration-(--duration-feedback) focus-visible:outline-2 focus-visible:-outline-offset-2"
+            aria-label={`${displayName || "Your account"}, ${email}`}
+            className={
+              compact
+                ? "hover:bg-surface-container-high focus-visible:outline-focus-ring flex h-full min-h-14 w-full flex-col items-center justify-center gap-1 rounded-control px-1 py-1 text-center text-[11px] font-medium transition-colors duration-(--duration-feedback) focus-visible:outline-2 focus-visible:-outline-offset-2"
+                : "hover:bg-surface-container-high focus-visible:outline-focus-ring flex min-h-14 w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors duration-(--duration-feedback) focus-visible:outline-2 focus-visible:-outline-offset-2"
+            }
           >
-            <Avatar displayName={displayName} email={email} />
-            <span className="min-w-0 flex-1">
-              <span className="text-on-surface block truncate text-sm font-medium">
-                {displayName || "Your account"}
-              </span>
-              <span className="text-on-surface-variant block truncate text-xs">{email}</span>
-            </span>
-            <span aria-hidden="true" className="text-on-surface-variant shrink-0">
-              <MaterialIcon name="expand_less" size={20} />
-            </span>
+            <Avatar displayName={displayName} email={email} photoUrl={profilePhotoUrl} />
+            {!compact && (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="text-on-surface block truncate text-sm font-medium">
+                    {displayName || "Your account"}
+                  </span>
+                  <span className="text-on-surface-variant block truncate text-xs">{email}</span>
+                </span>
+                <span aria-hidden="true" className="text-on-surface-variant shrink-0">
+                  <MaterialIcon name="expand_less" size={20} />
+                </span>
+              </>
+            )}
           </button>
         )}
       />
@@ -144,6 +268,100 @@ export function AccountMenu({ user, onSignOut, signingOut }: AccountMenuProps) {
             </span>
           </li>
         </ul>
+      </Dialog>
+
+      <Dialog
+        open={profileOpen}
+        title="Your profile"
+        description="Update the name and optional profile picture shown in Cognaxis."
+        onClose={() => {
+          if (!profilePending) setProfileOpen(false);
+        }}
+        busy={profilePending}
+        actions={
+          <>
+            <Button variant="text" onClick={() => setProfileOpen(false)} disabled={profilePending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                void (async () => {
+                  setProfilePending(true);
+                  setProfileError(null);
+                  try {
+                    let photo = profilePhotoUrl || null;
+                    if (profilePhotoFile) {
+                      photo = await api.uploadProfilePhoto(profilePhotoFile);
+                    } else if (profilePhotoRemoved) {
+                      await api.deleteProfilePhoto();
+                      photo = null;
+                    }
+                    await updateProfile(user, {
+                      displayName: profileName.trim() || null,
+                    });
+                    // Refresh the token so the backend identity projection and team member lists
+                    // receive the new display name without waiting for Firebase's normal expiry.
+                    await user.getIdToken(true).catch(() => undefined);
+                    setProfilePhotoUrl(photo ?? "");
+                    setProfilePhotoFile(null);
+                    setProfilePhotoRemoved(false);
+                    if (profilePreviewRef.current) URL.revokeObjectURL(profilePreviewRef.current);
+                    profilePreviewRef.current = null;
+                    setProfilePhotoPreview(null);
+                    setProfileOpen(false);
+                  } catch (error) {
+                    setProfileError(
+                      error instanceof ApiError ? error.message : "Your profile could not be updated. Try again.",
+                    );
+                  } finally {
+                    setProfilePending(false);
+                  }
+                })();
+              }}
+              loading={profilePending}
+            >
+              Save profile
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-5">
+          {profileError && <p className="text-error text-sm" role="alert">{profileError}</p>}
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <Avatar size="large" displayName={profileName} email={email} photoUrl={profilePhotoPreview ?? profilePhotoUrl} />
+              <label className="bg-primary text-on-primary hover:bg-primary/90 focus-within:outline-focus-ring absolute right-0 bottom-0 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full shadow-sm focus-within:outline-2 focus-within:outline-offset-2" title={profilePhotoUrl || profilePhotoPreview ? "Replace photo" : "Upload photo"}>
+                <span className="sr-only">{profilePhotoUrl || profilePhotoPreview ? "Replace photo" : "Upload photo"}</span>
+                <MaterialIcon name="add" size={17} />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  onChange={(event) => {
+                    handleProfilePhotoChange(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            <div className="text-on-surface-variant text-xs">
+              <p>This is how your account appears in the app.</p>
+              <p className="mt-1">JPEG, PNG, or WebP · 1 MB maximum</p>
+              {(profilePhotoUrl || profilePhotoPreview) && (
+                <Button variant="text" size="compact" className="mt-1 -ml-2" onClick={removeProfilePhoto} disabled={profilePending}>
+                  Remove photo
+                </Button>
+              )}
+            </div>
+          </div>
+          <TextField
+            label="Display name"
+            value={profileName}
+            maxLength={80}
+            autoFocus
+            onChange={(event) => setProfileName(event.target.value)}
+          />
+        </div>
       </Dialog>
     </>
   );

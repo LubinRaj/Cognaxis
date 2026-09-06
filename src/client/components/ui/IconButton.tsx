@@ -5,6 +5,8 @@ export type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "chi
   icon: MaterialIconName;
   /** Required: an icon-only control must still expose an accessible name. */
   label: string;
+  /** Optional color for the SVG itself; this avoids parent button color conflicts. */
+  iconClassName?: string;
   size?: number;
   tone?: "default" | "destructive" | "primary";
   active?: boolean;
@@ -19,6 +21,7 @@ const toneClasses = {
 export function IconButton({
   icon,
   label,
+  iconClassName = "",
   size = 20,
   tone = "default",
   active = false,
@@ -38,7 +41,7 @@ export function IconButton({
         active ? "bg-secondary-container text-on-secondary-container" : toneClasses[tone]
       } ${className}`}
     >
-      <MaterialIcon name={icon} size={size} />
+      <MaterialIcon name={icon} size={size} className={iconClassName} />
     </button>
   );
 }

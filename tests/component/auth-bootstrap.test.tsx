@@ -33,13 +33,13 @@ describe("authentication bootstrap", () => {
     const { container } = await renderApp();
 
     expect(screen.getByRole("status")).toHaveTextContent("Preparing your private workspace…");
-    expect(container.textContent).not.toContain("Think freely");
+    expect(container.textContent).not.toContain("Think clearly");
     expect(container.textContent).not.toContain("Welcome back");
     expect(container.textContent).not.toContain("Alpha");
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
-  it("completes any pending redirect before starting the observer", async () => {
+  it("starts the normal identity observer without waiting for a redirect result", async () => {
     const order: string[] = [];
     firebaseAuthMocks.getRedirectResult.mockImplementation(() => {
       order.push("redirect");
@@ -52,7 +52,7 @@ describe("authentication bootstrap", () => {
 
     await renderApp();
 
-    await waitFor(() => expect(order).toEqual(["redirect", "observer"]));
+    await waitFor(() => expect(order).toEqual(["observer", "redirect"]));
   });
 
   it("registers exactly one identity observer", async () => {

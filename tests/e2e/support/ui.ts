@@ -32,14 +32,24 @@ export function accountMenuTrigger(page: Page, account: SyntheticAccount) {
 export async function signOut(page: Page, account: SyntheticAccount): Promise<void> {
   await accountMenuTrigger(page, account).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { name: /Think freely/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Think clearly/ })).toBeVisible();
 }
 
 export async function startReflection(page: Page): Promise<void> {
-  await page
+  const createButton = page
     .getByRole("button", { name: /New reflection|Start your first reflection|Start a reflection/ })
-    .first()
-    .click();
+    .first();
+  const creation = page.waitForResponse((response) => {
+    const path = new URL(response.url()).pathname;
+    return (
+      response.request().method() === "POST" &&
+      /^\/api\/v1\/(?:sessions|organizations\/[^/]+\/sessions)$/.test(path)
+    );
+  });
+  await createButton.click();
+  // An existing composer can remain visible while the request creates a new reflection. Waiting
+  // for the actual creation response avoids racing the next user action against that transition.
+  await creation;
   await expect(page.getByLabel("Write your reflection")).toBeVisible();
 }
 

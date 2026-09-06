@@ -98,7 +98,7 @@ export function PrivacyPage() {
 
         <Section title="Administration">
           <p>
-            Platform administrators can see operational metadata only — such as account status,
+            Platform administrators can see operational metadata only - such as account status,
             usage counters, and audit events. There is no administrative surface that returns
             journal content, check-in notes, or locations.
           </p>

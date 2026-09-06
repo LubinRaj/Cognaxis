@@ -1,4 +1,4 @@
-import type { PersonalSignal } from "../../../shared/schemas";
+import type { PersonalCheckIn, PersonalSignal } from "../../../shared/schemas";
 import { ENERGY_LABELS, EMOTION_DISPLAY, MOOD_LABELS } from "../../workspace/check-in";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -8,7 +8,7 @@ export function CheckInSummaryRow({
   onEdit,
   editDisabled,
 }: {
-  signal: PersonalSignal;
+  signal: PersonalSignal | PersonalCheckIn;
   onEdit: () => void;
   editDisabled?: boolean;
 }) {

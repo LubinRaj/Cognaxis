@@ -140,6 +140,71 @@ describe("deterministic personal dashboard", () => {
     expect(dashboard.coverage).toBe(0.5);
   });
 
+  it("uses a daily streak for the seven-day view and ignores earlier reflections", () => {
+    const dashboard = computeDashboard({
+      ...BASE,
+      today: "2026-09-03",
+      sessionCreationTimes: [
+        "2026-09-03T10:00:00.000Z",
+        "2026-09-02T10:00:00.000Z",
+        "2026-09-01T10:00:00.000Z",
+        "2026-08-30T10:00:00.000Z",
+        "2026-08-20T10:00:00.000Z",
+      ],
+    });
+
+    expect(dashboard.reflectionStreak).toMatchObject({
+      unit: "day",
+      current: 3,
+      longest: 3,
+      activePeriods: 4,
+    });
+    expect(dashboard.reflectionStreak.periods).toHaveLength(7);
+    expect(dashboard.reflectionStreak.periods.at(-1)).toMatchObject({
+      start: "2026-09-03",
+      reflectionCount: 1,
+      isCurrent: true,
+    });
+  });
+
+  it("uses calendar weeks for the thirty-day view", () => {
+    const dashboard = computeDashboard({
+      ...BASE,
+      rangeDays: 30,
+      sessionCreationTimes: [
+        "2026-08-31T10:00:00.000Z",
+        "2026-08-24T10:00:00.000Z",
+        "2026-08-17T10:00:00.000Z",
+        "2026-08-03T10:00:00.000Z",
+      ],
+    });
+    expect(dashboard.reflectionStreak).toMatchObject({
+      unit: "week",
+      current: 3,
+      longest: 3,
+      activePeriods: 3,
+    });
+  });
+
+  it("uses calendar months for the ninety-day view", () => {
+    const dashboard = computeDashboard({
+      ...BASE,
+      rangeDays: 90,
+      sessionCreationTimes: [
+        "2026-09-01T10:00:00.000Z",
+        "2026-08-01T10:00:00.000Z",
+        "2026-07-01T10:00:00.000Z",
+        "2026-06-01T10:00:00.000Z",
+      ],
+    });
+    expect(dashboard.reflectionStreak).toMatchObject({
+      unit: "month",
+      current: 3,
+      longest: 3,
+      activePeriods: 3,
+    });
+  });
+
   it("reports null coverage when there are no reflections", () => {
     const dashboard = computeDashboard(BASE);
     expect(dashboard.reflectionCount).toBe(0);

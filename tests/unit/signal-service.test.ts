@@ -21,10 +21,19 @@ function input(overrides: Partial<UpsertSignalInput> = {}): UpsertSignalInput {
 
 async function createContext() {
   const journal = new InMemoryJournalRepository();
-  const signals = new InMemorySignalRepository(() => NOW);
-  const service = new SignalService(signals, journal, () => NOW);
+  let currentNow = NOW;
+  const signals = new InMemorySignalRepository(() => currentNow);
+  const service = new SignalService(signals, journal, () => currentNow);
   const session = await journal.createSession("user_alpha", "Reflection");
-  return { journal, signals, service, sessionId: session.id };
+  return {
+    journal,
+    signals,
+    service,
+    sessionId: session.id,
+    advanceNow: (milliseconds: number) => {
+      currentNow = new Date(currentNow.getTime() + milliseconds);
+    },
+  };
 }
 
 describe("SignalService", () => {
@@ -166,5 +175,28 @@ describe("SignalService", () => {
     await service.remove("user_alpha", sessionId);
     await expect(service.remove("user_alpha", sessionId)).resolves.toBeUndefined();
     expect(await service.getForSession("user_alpha", sessionId)).toBeNull();
+  });
+
+  it("keeps multiple private check-ins and returns the latest one for the session", async () => {
+    const { service, signals, sessionId, advanceNow } = await createContext();
+
+    const first = await service.createCheckIn("user_alpha", sessionId, input({ moodScore: 2 }));
+    advanceNow(1_000);
+    const second = await service.createCheckIn("user_alpha", sessionId, input({ moodScore: 5 }));
+
+    expect(first.id).not.toBe(second.id);
+    expect(await service.listCheckIns("user_alpha", sessionId)).toHaveLength(2);
+    expect((await service.getForSession("user_alpha", sessionId))?.moodScore).toBe(5);
+    expect(await signals.listCheckIns("user_bravo", sessionId, 50)).toEqual([]);
+  });
+
+  it("removes all private check-ins when an owned session is deleted", async () => {
+    const { service, signals, sessionId } = await createContext();
+    await service.createCheckIn("user_alpha", sessionId, input());
+    await service.createCheckIn("user_alpha", sessionId, input({ moodScore: 2 }));
+
+    await service.removeForDeletedSession("user_alpha", sessionId);
+
+    expect(await signals.listCheckIns("user_alpha", sessionId, 50)).toEqual([]);
   });
 });

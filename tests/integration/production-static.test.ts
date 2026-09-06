@@ -17,6 +17,7 @@ async function createProductionApp() {
       NODE_ENV: "production",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
       GEMINI_API_KEY: "synthetic-production-key",
+      FIREBASE_STORAGE_BUCKET: "synthetic-project.firebasestorage.app",
     },
   });
 }
@@ -67,6 +68,13 @@ describe("production static serving", () => {
     const { app } = await createProductionApp();
     const response = await request(app).get("/api/health").expect(200);
     expect(JSON.parse(response.text)).toEqual({ status: "ok" });
+  });
+
+  it("answers the conventional favicon request without a 404", async () => {
+    const { app } = await createProductionApp();
+    const response = await request(app).get("/favicon.ico").expect(302);
+    expect(response.headers.location).toBe("/favicon.svg");
+    await request(app).get("/favicon.svg").expect(200);
   });
 
   it("never redirects unknown API routes to the application shell", async () => {

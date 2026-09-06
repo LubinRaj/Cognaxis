@@ -7,7 +7,7 @@ Execution rule: Each state-changing Google Cloud or Firebase step requires proje
 
 - Confirm the Firebase/Firestore region. Prefer the region nearest the expected demo users and keep Cloud Run in a compatible nearby region.
 - Confirm the final production origin and Cloud Run service name.
-- Confirm whether the Gemini Developer API key requirement will be met by a key stored in Secret Manager or whether the event accepts Vertex AI identity-based access. The current code implements the challenge's explicit Secret Manager key path.
+- Confirm whether the Gemini Developer API key requirement will be met by a key stored in Secret Manager or whether the event accepts Agent Platform identity-based access. The current code implements the challenge's explicit Secret Manager key path.
 
 ## 2. Firebase
 
@@ -19,6 +19,8 @@ Execution rule: Each state-changing Google Cloud or Firebase step requires proje
 - Add only localhost and the final Cloud Run/custom domains to authorized domains.
 - Copy the Firebase web configuration identifiers into deployment environment variables; never add Admin SDK credentials to the browser.
 - Create Firestore in Native mode in the approved region.
+- Enable Firebase Storage and record the exact bucket name for `FIREBASE_STORAGE_BUCKET`. Keep the
+  bucket private; all object access goes through the authenticated Cloud Run backend.
 - Deploy `firestore.rules` only after emulator verification. These baseline rules deny all direct confidential client access.
 
 ### 2.1 Email/password settings to verify before release
@@ -81,14 +83,26 @@ Firebase's default handler, and record the restriction. Do not work around it.
 - Do not create or download a service-account key.
 - Grant only the datastore permissions required by the repository operations.
 - Grant `roles/secretmanager.secretAccessor` on the single Gemini secret, not at project scope.
+- If the optional Agent Platform fallback is approved and enabled, enable the Agent Platform
+  API and grant the runtime identity `roles/aiplatform.user`. It uses the runtime identity through
+  Application Default Credentials; do not create or download a service-account key.
+- Grant the runtime identity only the required object permissions on the Firebase Storage bucket
+  (prefer a bucket-level `roles/storage.objectAdmin` binding); do not grant project-wide Storage
+  administration.
 - Do not grant Owner, Editor, IAM administration, billing administration, or broad Secret Manager roles to the runtime.
 - Record sanitized IAM evidence without principal email addresses or project identifiers.
 
 ## 5. Cloud Run
 
 - Build from the reviewed commit using the included `Dockerfile`.
-- Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, and `GEMINI_API_KEY` as the pinned Secret Manager reference.
+- Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, `FIREBASE_STORAGE_BUCKET`, and
+  `GEMINI_API_KEY` as the pinned Secret Manager reference.
 - Never set a plain `GEMINI_API_KEY` in production; only the Secret Manager reference is accepted.
+- Leave `AGENT_PLATFORM_FALLBACK_ENABLED=false` unless the fallback has been approved, the Agent
+  Platform API is enabled, and the runtime identity has `roles/aiplatform.user`. When enabled, set
+  only `AGENT_PLATFORM_FALLBACK_ENABLED=true`; it reuses `GOOGLE_CLOUD_PROJECT` and `GEMINI_MODEL`,
+  uses the global endpoint, and authenticates through the Cloud Run service identity. AI Studio is
+  always attempted first; any provider failure then receives one Agent Platform attempt.
 - Bind the dedicated runtime service account.
 - Set conservative request concurrency, timeout, maximum instances, and minimum instances for the demo budget.
 - Restrict unauthenticated access to the public HTTPS service only; all protected application routes still require Firebase tokens.

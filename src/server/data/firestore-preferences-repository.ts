@@ -12,6 +12,7 @@ type StoredPreferences = {
   timezone: string;
   weekStartsOn: "monday";
   insightRangeDays: 7 | 30 | 90;
+  locationMode?: "off" | "approximate" | "exact";
   createdAt: Timestamp;
   updatedAt: Timestamp;
   schemaVersion: 1;
@@ -36,6 +37,7 @@ export class FirestorePreferencesRepository implements PreferencesRepository {
       timezone: stored.timezone,
       weekStartsOn: "monday",
       insightRangeDays: stored.insightRangeDays,
+      locationMode: stored.locationMode ?? "off",
       createdAt: toIso(stored.createdAt),
       updatedAt: toIso(stored.updatedAt),
       schemaVersion: 1,
@@ -51,6 +53,7 @@ export class FirestorePreferencesRepository implements PreferencesRepository {
         timezone: input.timezone,
         weekStartsOn: input.weekStartsOn,
         insightRangeDays: input.insightRangeDays,
+        locationMode: input.locationMode ?? "off",
         createdAt: existing.exists
           ? (existing.data() as StoredPreferences).createdAt
           : FieldValue.serverTimestamp(),

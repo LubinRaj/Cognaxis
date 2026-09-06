@@ -1,9 +1,38 @@
-import { expect, test } from "./fixtures/test";
+import { expect, hardenContext, test } from "./fixtures/test";
 import { createVerifiedUser } from "./support/accounts";
 import { MODEL_ERROR_TRIGGER, MODEL_SLOW_TRIGGER } from "./support/deterministic-models";
 import { expectAssistantReply, sendMessage, signIn, startReflection } from "./support/ui";
 
 test.describe("personal journal", () => {
+  test("personal memory refreshes, answers with evidence, and remains isolated from another user", async ({ page, browser }) => {
+    const owner = await createVerifiedUser("memoryowner");
+    const stranger = await createVerifiedUser("memorystranger");
+    await signIn(page, owner);
+    await startReflection(page);
+    await sendMessage(page, "I decided to ship the onboarding checklist on Friday.");
+    await expectAssistantReply(page, "Test reflection response 1");
+
+    await page.goto("/app/ask");
+    await page.getByRole("button", { name: "Refresh saved memory" }).click();
+    await expect(page.getByText(/recent capture.*ready to search/i)).toBeVisible();
+    await page.getByLabel("What would you like to remember or understand?").fill("When is the onboarding checklist planned?");
+    await page.getByRole("button", { name: "Ask me", exact: true }).click();
+    await expect(page.getByText("A grounded personal memory answer.")).toBeVisible();
+    await expect(page.getByText(/Based on your reflections/)).toBeVisible();
+
+    const strangerContext = await browser.newContext();
+    const strangerReport = await hardenContext(strangerContext, /Failed to load resource/);
+    const strangerPage = await strangerContext.newPage();
+    await signIn(strangerPage, stranger);
+    await strangerPage.goto("/app/ask");
+    await strangerPage.getByLabel("What would you like to remember or understand?").fill("When is the onboarding checklist planned?");
+    await strangerPage.getByRole("button", { name: "Ask me", exact: true }).click();
+    await expect(strangerPage.getByText(/couldn't find enough/i)).toBeVisible();
+    await expect(strangerPage.getByText("A grounded personal memory answer.")).toHaveCount(0);
+    expect(strangerReport.errors).toEqual([]);
+    await strangerContext.close();
+  });
+
   test("one complete journey: write, converse, persist, summarize, and delete", async ({
     page,
   }) => {
@@ -11,9 +40,21 @@ test.describe("personal journal", () => {
     await signIn(page, account);
     await startReflection(page);
 
+    // Media stays in the same private session scope and is submitted explicitly with the text.
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: "context.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+    await expect(page.getByText("Image attached")).toBeVisible();
+
     // Two exchanges with the deterministic assistant, in visible order.
     await sendMessage(page, "First thought about my day.");
     await expectAssistantReply(page, "Test reflection response 1");
+    await expect(page.getByRole("img", { name: "Attached image" })).toBeVisible();
     await sendMessage(page, "A second, deeper thought.");
     await expectAssistantReply(page, "Test reflection response 2");
 
@@ -28,6 +69,7 @@ test.describe("personal journal", () => {
     await page.reload();
     await expect(page.getByRole("article")).toHaveCount(4);
     await expectAssistantReply(page, "Test reflection response 2");
+    await expect(page.getByRole("img", { name: "Attached image" })).toBeVisible();
 
     // Reopen the same session through the visible history.
     const history = page.getByRole("navigation", { name: "Reflection history" }).first();

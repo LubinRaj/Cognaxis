@@ -26,7 +26,7 @@ export function OrganizationsPage() {
   const user = useOutletContext<User>();
   const navigate = useNavigate();
   const api = useApiClient(user);
-  usePageTitle("Organizations · Cognaxis");
+  usePageTitle("Teams · Cognaxis");
 
   const [organizations, setOrganizations] = useState<UserOrganizationEdge[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -37,6 +37,7 @@ export function OrganizationsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [reflectionCounts, setReflectionCounts] = useState<Record<string, number | null>>({});
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -47,6 +48,18 @@ export function OrganizationsPage() {
         if (requestRef.current !== requestId) return;
         setOrganizations(loaded);
         setStatus("ready");
+        void Promise.all(
+          loaded.filter((edge) => edge.status === "active").map(async (edge) => {
+            try {
+              const sessions = await api.listOrganizationSessions(edge.orgId);
+              return [edge.orgId, sessions.length] as const;
+            } catch {
+              return [edge.orgId, null] as const;
+            }
+          }),
+        ).then((entries) => {
+          if (requestRef.current === requestId) setReflectionCounts(Object.fromEntries(entries));
+        });
       })
       .catch((error: unknown) => {
         if (requestRef.current !== requestId) return;
@@ -91,13 +104,13 @@ export function OrganizationsPage() {
       <div className="mx-auto w-full max-w-[860px] px-4 py-6 sm:px-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="font-display text-on-surface text-2xl font-medium">Organizations</h1>
+            <h1 className="font-display text-on-surface text-2xl font-medium">Teams</h1>
             <p className="text-on-surface-variant mt-1 text-sm">
-              Shared workspaces, kept fully separate from your private journal.
+              Shared intelligence spaces, kept fully separate from your personal captures.
             </p>
           </div>
-          <Button icon="add" onClick={() => setCreateOpen(true)}>
-            New organization
+          <Button icon="add" onClick={() => setCreateOpen(true)} className="max-sm:w-full">
+            New team
           </Button>
         </header>
 
@@ -110,7 +123,7 @@ export function OrganizationsPage() {
           <div className="mt-10">
             <EmptyState
               icon="refresh"
-              title="Your organizations could not be loaded"
+              title="Your teams could not be loaded"
               description={errorMessage ?? "Check your connection and try again in a moment."}
               actions={
                 <Button icon="refresh" onClick={() => setReloadToken((token) => token + 1)}>
@@ -123,28 +136,28 @@ export function OrganizationsPage() {
           <div className="mt-10">
             <EmptyState
               icon="groups"
-              title="No organizations yet"
-              description="Create a shared workspace to reflect together, or accept an invitation link from someone who already has one."
+              title="No teams yet"
+              description="Create a shared team space, or accept an invitation link from someone who already has one."
               actions={
                 <Button icon="add" onClick={() => setCreateOpen(true)}>
-                  New organization
+                  New team
                 </Button>
               }
             />
           </div>
         ) : (
           <ul className="mt-6 space-y-3">
-            {organizations.map((edge) => (
-              <li key={edge.orgId}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void navigate(`/app/organizations/${encodeURIComponent(edge.orgId)}`)
-                  }
-                  className="border-outline-variant bg-surface-container-low hover:bg-surface-container focus-visible:outline-focus-ring block w-full rounded-card border p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 motion-safe:transition-colors motion-safe:duration-feedback"
-                >
+            {organizations.map((edge) => {
+              const reflectionCount = reflectionCounts[edge.orgId];
+              return (
+                <li key={edge.orgId}>
+                  <button
+                    type="button"
+                    onClick={() => void navigate(`/app/organizations/${encodeURIComponent(edge.orgId)}`)}
+                    className="border-outline-variant bg-surface-container-low hover:bg-surface-container focus-visible:outline-focus-ring block w-full rounded-card border p-4 text-left motion-safe:transition-colors motion-safe:duration-feedback focus-visible:outline-2 focus-visible:outline-offset-2"
+                  >
                   <span className="flex items-center justify-between gap-3">
-                    <span className="text-on-surface truncate text-base font-medium">
+                    <span className="text-on-surface min-w-0 truncate text-base font-medium">
                       {edge.organizationName}
                     </span>
                     <Chip tone={edge.status === "active" ? "primary" : "warning"}>
@@ -161,9 +174,21 @@ export function OrganizationsPage() {
                       day: "numeric",
                     })}
                   </span>
-                </button>
-              </li>
-            ))}
+                  {edge.status === "active" && (
+                    <span className="text-on-surface-variant mt-2 block text-xs">
+                      {reflectionCount === undefined
+                        ? "Loading shared reflections…"
+                        : reflectionCount === null
+                          ? "Shared reflections unavailable"
+                          : reflectionCount > 0
+                        ? `${reflectionCount} shared reflection${reflectionCount === 1 ? "" : "s"}`
+                        : "No shared reflections yet"}
+                    </span>
+                  )}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -171,8 +196,8 @@ export function OrganizationsPage() {
       {createOpen && (
         <Dialog
           open
-          title="New organization"
-          description="Everything created inside an organization is visible to its active members. Your private journal stays separate."
+          title="New team"
+          description="Everything captured in a team is visible to its active members. Your personal captures stay separate."
           onClose={() => {
             if (!creating) setCreateOpen(false);
           }}
@@ -188,7 +213,7 @@ export function OrganizationsPage() {
                 loadingLabel="Creating…"
                 disabled={creating}
               >
-                Create organization
+                Create team
               </Button>
             </>
           }

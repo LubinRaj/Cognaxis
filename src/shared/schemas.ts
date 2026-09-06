@@ -7,22 +7,49 @@ export const documentIdSchema = z
   .max(128)
   .regex(/^[A-Za-z0-9_-]+$/, "Invalid resource identifier");
 
+export const captureTypes = ["reflection", "update", "decision", "blocker", "idea"] as const;
+export type CaptureType = (typeof captureTypes)[number];
+
 export const createSessionSchema = z
   .object({
     title: z.string().trim().min(1).max(120).optional(),
+    // A capture type is chosen explicitly by the person creating the capture.  It is metadata,
+    // not an AI classification, and scope/ownership remain entirely server-derived.
+    captureType: z.enum(captureTypes).optional().default("reflection"),
   })
+  .strict();
+
+export const renameSessionSchema = z
+  .object({ title: z.string().trim().min(1).max(120) })
+  .strict();
+
+export const reflectionTagSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(48)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 _/&-]*$/, "Tags may contain letters, numbers, spaces, and - / &");
+
+export const updateSessionTagsSchema = z
+  .object({ tags: z.array(reflectionTagSchema).max(5) })
+  .strict();
+
+export const tagListQuerySchema = z
+  .object({ limit: z.coerce.number().int().min(1).max(100).default(100) })
   .strict();
 
 export const createMessageSchema = z
   .object({
     requestId: z.uuid(),
     content: z.string().trim().min(1).max(8_000),
+    attachmentIds: z.array(documentIdSchema).max(3).optional(),
   })
   .strict();
 
 export const listQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(50).default(20),
+    status: z.enum(["active", "archived"]).default("active"),
   })
   .strict();
 
@@ -35,7 +62,9 @@ export const summaryOutputSchema = z
   })
   .strict();
 
-export type CreateSessionInput = z.infer<typeof createSessionSchema>;
+// Input remains backwards-compatible for existing clients. Parsing applies the default before
+// any server service sees it.
+export type CreateSessionInput = z.input<typeof createSessionSchema>;
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 export type SummaryOutput = z.infer<typeof summaryOutputSchema>;
 
@@ -45,6 +74,8 @@ export type JournalSession = {
   status: "active" | "archived";
   messageCount: number;
   summarizedMessageCount: number;
+  captureType: CaptureType;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -53,6 +84,17 @@ export type JournalMessage = {
   id: string;
   role: "user" | "model";
   content: string;
+  attachmentIds?: string[];
+  createdAt: string;
+};
+
+export type AttachmentKind = "image" | "document" | "audio";
+
+export type AttachmentReference = {
+  id: string;
+  kind: AttachmentKind;
+  mimeType: string;
+  byteSize: number;
   createdAt: string;
 };
 
@@ -62,6 +104,67 @@ export type PersonalMemory = SummaryOutput & {
   sourceMessageIds: string[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type PersonalMemoryCitation = {
+  sessionId: string;
+  title: string;
+  date: string;
+};
+
+export type PersonalMemoryAnswer = {
+  answer: string;
+  citations: PersonalMemoryCitation[];
+};
+
+export type PersonalOpenLoop = {
+  sessionId: string;
+  title: string;
+  captureType: CaptureType;
+  date: string;
+  text: string;
+};
+
+export type OrganizationMemoryCitation = {
+  sessionId: string;
+  title: string;
+  date: string;
+  captureType: CaptureType;
+};
+
+export type OrganizationMemoryAnswer = {
+  answer: string;
+  citations: OrganizationMemoryCitation[];
+};
+
+export const buildMemoryIndexSchema = z.object({
+  limit: z.number().int().min(1).max(30).optional().default(20),
+}).strict();
+
+export type MemoryIndexBuildResult = {
+  examined: number;
+  indexed: number;
+  skipped: number;
+  failed: number;
+};
+
+export type OrganizationEodSettings = {
+  enabled: boolean;
+  timezone: string;
+  activeWeekdays: number[];
+  dueLocalTime: string;
+  questions: string[];
+  showSubmissionStatus: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+};
+
+export type OrganizationEodStatus = {
+  uid: string;
+  localDate: string;
+  dismissed: boolean;
+  submittedSessionId: string | null;
+  updatedAt: string | null;
 };
 
 export type SessionDetail = JournalSession & {
@@ -78,6 +181,7 @@ export type MessageExchange = {
   userMessage: JournalMessage;
   assistantMessage: JournalMessage;
   summary: PersonalMemory | null;
+  session?: JournalSession;
 };
 
 const journalMessagePayloadSchema = z
@@ -85,6 +189,7 @@ const journalMessagePayloadSchema = z
     id: z.string().min(1),
     role: z.enum(["user", "model"]),
     content: z.string(),
+    attachmentIds: z.array(documentIdSchema).max(3).optional(),
     createdAt: z.string().datetime(),
   })
   .strict();
@@ -99,11 +204,26 @@ const personalMemoryPayloadSchema = summaryOutputSchema
   })
   .strict();
 
+const journalSessionPayloadSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1).max(120),
+    status: z.enum(["active", "archived"]),
+    messageCount: z.number().int().min(0).max(120),
+    summarizedMessageCount: z.number().int().min(0).max(120),
+    captureType: z.enum(captureTypes),
+    tags: z.array(reflectionTagSchema).max(5),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
 export const messageExchangeSchema = z
   .object({
     userMessage: journalMessagePayloadSchema,
     assistantMessage: journalMessagePayloadSchema,
     summary: personalMemoryPayloadSchema.nullable(),
+    session: journalSessionPayloadSchema.optional(),
   })
   .strict();
 
@@ -192,6 +312,7 @@ export type Preferences = {
   timezone: string;
   weekStartsOn: "monday";
   insightRangeDays: 7 | 30 | 90;
+  locationMode: "off" | "approximate" | "exact";
   createdAt: string;
   updatedAt: string;
   schemaVersion: 1;
@@ -226,6 +347,13 @@ export type PersonalSignal = {
   scopeType: "personal";
   scopeId: string;
   schemaVersion: 1;
+};
+
+/** A time-stamped private check-in. Legacy `personalSignals` remain readable during migration. */
+export type PersonalCheckIn = Omit<PersonalSignal, "schemaVersion"> & {
+  id: string;
+  anchorMessageId: string | null;
+  schemaVersion: 2;
 };
 
 export const emotionLabels = [
@@ -293,6 +421,12 @@ export const upsertSignalSchema = z
   .strict();
 
 export type UpsertSignalInput = z.infer<typeof upsertSignalSchema>;
+
+// A check-in is deliberately scoped only by its server-authorized session. Message anchors
+// will be added only alongside a server-side message ownership lookup; accepting one from a
+// browser now would allow arbitrary dangling references to be persisted.
+export const createCheckInSchema = upsertSignalSchema;
+export type CreateCheckInInput = z.input<typeof createCheckInSchema>;
 
 // Insights
 export type InsightPeriodType = "day" | "week";
@@ -418,6 +552,37 @@ export const createOrganizationSchema = z.object({
 export const updateOrganizationSchema = createOrganizationSchema.partial();
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
+export const organizationMemoryAskSchema = z
+  .object({
+    requestId: z.uuid(),
+    query: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type OrganizationMemoryAskInput = z.infer<typeof organizationMemoryAskSchema>;
+
+export const organizationEodSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    timezone: z.string().refine(isValidTimeZone, "Invalid time zone"),
+    activeWeekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+    dueLocalTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Invalid local time"),
+    questions: z.array(z.string().trim().min(1).max(240)).min(1).max(3),
+    showSubmissionStatus: z.boolean(),
+  })
+  .strict();
+export type OrganizationEodSettingsInput = z.infer<typeof organizationEodSettingsSchema>;
+
+export const organizationEodStatusSchema = z
+  .object({
+    dismissed: z.boolean().optional(),
+    submittedSessionId: documentIdSchema.nullable().optional(),
+  })
+  .strict()
+  .refine((value) => value.dismissed !== undefined || value.submittedSessionId !== undefined, {
+    message: "Nothing to update",
+  });
+export type OrganizationEodStatusInput = z.infer<typeof organizationEodStatusSchema>;
+
 export type OrganizationPermissions = {
   canWrite: boolean;
   canManageMembers: boolean;
@@ -446,6 +611,7 @@ export type OrganizationMessage = {
   id: string;
   role: "user" | "model";
   content: string;
+  attachmentIds?: string[];
   authorUid: string | null;
   createdAt: string;
 };
@@ -456,6 +622,8 @@ export type OrganizationSession = {
   status: "active" | "archived";
   messageCount: number;
   summarizedMessageCount: number;
+  captureType: CaptureType;
+  tags: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -473,6 +641,44 @@ export type OrganizationSessionDetail = OrganizationSession & {
   messages: OrganizationMessage[];
   summary: OrganizationSummary | null;
 };
+
+const organizationMessagePayloadSchema = z
+  .object({
+    id: z.string().min(1),
+    role: z.enum(["user", "model"]),
+    content: z.string(),
+    attachmentIds: z.array(documentIdSchema).max(3).optional(),
+    authorUid: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).nullable(),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export const organizationExchangeSchema = z
+  .object({
+    userMessage: organizationMessagePayloadSchema,
+    assistantMessage: organizationMessagePayloadSchema,
+    messageCount: z.number().int().min(0).max(120),
+    session: z.object({
+      id: z.string().min(1),
+      title: z.string().min(1).max(120),
+      status: z.enum(["active", "archived"]),
+      messageCount: z.number().int().min(0).max(120),
+      summarizedMessageCount: z.number().int().min(0).max(120),
+      captureType: z.enum(captureTypes),
+      tags: z.array(reflectionTagSchema).max(5),
+      createdBy: z.string().min(1).max(128),
+      createdAt: z.string().datetime(),
+      updatedAt: z.string().datetime(),
+    }).optional(),
+  })
+  .strict();
+
+export const organizationStreamEventSchema = z.discriminatedUnion("type", [
+  streamStartEventSchema,
+  streamChunkEventSchema,
+  z.object({ type: z.literal("complete"), exchange: organizationExchangeSchema }).strict(),
+  streamErrorEventSchema,
+]);
 
 export type InvitePreview = {
   organizationName: string;
@@ -560,6 +766,23 @@ export type TrendPoint = {
 
 export type ScoreDistribution = Record<1 | 2 | 3 | 4 | 5, number>;
 
+export type ReflectionStreakUnit = "day" | "week" | "month";
+
+export type ReflectionStreakPeriod = {
+  start: string;
+  end: string;
+  reflectionCount: number;
+  isCurrent: boolean;
+};
+
+export type ReflectionStreak = {
+  unit: ReflectionStreakUnit;
+  current: number;
+  longest: number;
+  activePeriods: number;
+  periods: ReflectionStreakPeriod[];
+};
+
 export type PersonalDashboard = {
   rangeDays: DashboardRangeDays;
   from: string;
@@ -578,6 +801,7 @@ export type PersonalDashboard = {
   topEmotions: Array<{ emotion: EmotionLabel; count: number }>;
   trend: TrendPoint[];
   hasEnoughForTrend: boolean;
+  reflectionStreak: ReflectionStreak;
 };
 
 export type FeatureFlags = {
@@ -655,7 +879,17 @@ export const updatePreferencesSchema = z
     timezone: timezoneSchema,
     weekStartsOn: z.literal("monday"),
     insightRangeDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+    locationMode: z.enum(["off", "approximate", "exact"]).optional().default("off"),
   })
   .strict();
 
-export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
+export type UpdatePreferencesInput = z.input<typeof updatePreferencesSchema>;
+
+export const personalMemoryAskSchema = z
+  .object({
+    requestId: z.uuid(),
+    query: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export type PersonalMemoryAskInput = z.infer<typeof personalMemoryAskSchema>;

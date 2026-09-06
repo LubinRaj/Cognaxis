@@ -145,14 +145,14 @@ describe("bearer token refresh and retry policy", () => {
     ).toBe(false);
   });
 
-  it("treats a rejected recent-authentication check as terminal without a retry", () => {
+  it("keeps the session alive for a recent-authentication challenge without retrying the write", () => {
     expect(
       isSessionTerminatingResponse({
         status: 401,
         errorCode: "RECENT_AUTH_REQUIRED",
         completedRefreshes: 0,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldForceTokenRefresh({
         status: 401,

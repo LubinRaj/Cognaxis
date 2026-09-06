@@ -1,6 +1,7 @@
 import { localDateOf } from "../../shared/dates.js";
 import type {
   EmotionLabel,
+  PersonalCheckIn,
   PersonalSignal,
   PersonalSignalLocation,
   UpsertSignalInput,
@@ -50,7 +51,7 @@ export type CheckInDraft = {
   location: PersonalSignalLocation | null;
 };
 
-export function draftFromSignal(signal: PersonalSignal | null): CheckInDraft {
+export function draftFromSignal(signal: PersonalSignal | PersonalCheckIn | null): CheckInDraft {
   if (!signal) {
     return { moodScore: null, energyScore: null, emotions: [], note: "", location: null };
   }

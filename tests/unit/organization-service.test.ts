@@ -1,27 +1,42 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { JournalMessage, SummaryOutput } from "../../src/shared/schemas.js";
 import { InMemoryOrganizationRepository } from "../../src/server/data/in-memory-organization-repository.js";
 import { InMemoryOrganizationWorkspaceRepository } from "../../src/server/data/in-memory-organization-workspace-repository.js";
+import { InMemoryMemoryIndexRepository } from "../../src/server/data/in-memory-memory-index-repository.js";
 import { InMemoryPlatformUserRepository } from "../../src/server/data/in-memory-platform-user-repository.js";
-import type { ConversationModel } from "../../src/server/services/conversation-model.js";
+import type {
+  ConversationModel,
+  ReflectionClassification,
+  ReflectionClassificationInput,
+} from "../../src/server/services/conversation-model.js";
 import { OrganizationService } from "../../src/server/services/organization-service.js";
+import { MemoryIndexService } from "../../src/server/services/memory-index-service.js";
 import { TestModel } from "../helpers/test-app.js";
 
 const START = Date.parse("2026-09-03T10:00:00.000Z");
 
-function createContext() {
+function createContext<TModel extends ConversationModel = TestModel>(model: TModel = new TestModel() as unknown as TModel) {
   let currentTime = START;
   const clock = () => new Date(currentTime);
   const organizations = new InMemoryOrganizationRepository(clock);
   const workspace = new InMemoryOrganizationWorkspaceRepository(clock, organizations);
   const platformUsers = new InMemoryPlatformUserRepository(clock);
-  const model = new TestModel();
   const service = new OrganizationService(organizations, workspace, platformUsers, model, clock);
   const advance = (milliseconds: number) => {
     currentTime += milliseconds;
   };
   return { organizations, workspace, platformUsers, model, service, advance };
+}
+
+class ClassifyingOrganizationModel extends TestModel {
+  classification: ReflectionClassification = { title: "", tags: [] };
+  classificationInputs: ReflectionClassificationInput[] = [];
+
+  async classifyReflection(input: ReflectionClassificationInput): Promise<ReflectionClassification> {
+    this.classificationInputs.push(structuredClone(input));
+    return this.classification;
+  }
 }
 
 async function createOrgWith(
@@ -82,6 +97,9 @@ describe("organization creation and isolation", () => {
     await expect(
       context.service.createInvite("user_stranger", orgId, "member", randomUUID()),
     ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      context.service.askOrganizationMemory("user_stranger", orgId, "what happened?"),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("blocks every organization operation while the organization is suspended", async () => {
@@ -95,6 +113,196 @@ describe("organization creation and isolation", () => {
     await expect(
       context.service.createSession("user_member", orgId, "Blocked"),
     ).rejects.toMatchObject({ code: "ORGANIZATION_SUSPENDED" });
+  });
+});
+
+describe("organization memory", () => {
+  it("lets an owner build a bounded team index while blocking ordinary members", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    const session = await context.service.createSession("user_member", orgId, "Existing update", "update");
+    await context.service.addMessage("user_member", orgId, session.id, randomUUID(), "Existing shared progress.");
+    const indexedModel = context.model as unknown as ConversationModel & {
+      embedText: NonNullable<ConversationModel["embedText"]>;
+    };
+    indexedModel.embedText = async () => ({ values: [1, 0], model: "test-embedding" });
+    const memoryRepository = new InMemoryMemoryIndexRepository();
+    const indexedService = new OrganizationService(
+      context.organizations,
+      context.workspace,
+      context.platformUsers,
+      indexedModel,
+      undefined,
+      undefined,
+      undefined,
+      new MemoryIndexService(memoryRepository, indexedModel),
+    );
+
+    await expect(indexedService.buildMemoryIndex("user_member", orgId)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    await expect(indexedService.buildMemoryIndex("user_owner", orgId)).resolves.toEqual({
+      examined: 1,
+      indexed: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    await expect(memoryRepository.findNearest(
+      { type: "organization", scopeId: orgId },
+      [1, 0],
+      8,
+    )).resolves.toEqual([expect.objectContaining({ sourceSessionId: session.id })]);
+
+    await indexedService.archiveSession("user_owner", orgId, session.id);
+    await expect(memoryRepository.findNearest(
+      { type: "organization", scopeId: orgId },
+      [1, 0],
+      8,
+    )).resolves.toEqual([]);
+
+    await indexedService.restoreSession("user_owner", orgId, session.id);
+    await vi.waitFor(async () => {
+      await expect(memoryRepository.findNearest(
+        { type: "organization", scopeId: orgId },
+        [1, 0],
+        8,
+      )).resolves.toEqual([expect.objectContaining({ sourceSessionId: session.id })]);
+    });
+  });
+
+  it("answers from shared summaries and returns only same-organization citations", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    const session = await context.service.createSession("user_member", orgId, "Onboarding decision", "decision");
+    await context.service.addMessage("user_member", orgId, session.id, randomUUID(), "We decided to keep onboarding in one shared checklist.");
+    await context.service.addMessage("user_member", orgId, session.id, randomUUID(), "The checklist is ready for review.");
+    await context.service.summarize("user_member", orgId, session.id);
+
+    const answer = await context.service.askOrganizationMemory("user_owner", orgId, "What did we decide about onboarding?");
+    expect(answer.answer).toContain("grounded response");
+    expect(answer.citations).toEqual([
+      expect.objectContaining({ sessionId: session.id, title: "Reflection summary", captureType: "decision" }),
+    ]);
+    expect(context.model.lastMessages[0]?.content).toContain("authorizedOrganizationSummaries");
+    expect(context.model.lastMessages[0]?.content).not.toContain("user_member");
+  });
+
+  it("returns an honest no-evidence answer without calling Gemini", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context);
+    const before = context.model.calls;
+    await expect(context.service.askOrganizationMemory("user_owner", orgId, "anything?"))
+      .resolves.toEqual({
+        answer: "I couldn't find enough shared team context to answer that reliably yet.",
+        citations: [],
+      });
+    expect(context.model.calls).toBe(before);
+  });
+
+  it("does not cite an unrelated shared summary", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    const session = await context.service.createSession("user_member", orgId, "Onboarding decision", "decision");
+    await context.service.addMessage("user_member", orgId, session.id, randomUUID(), "Use one shared onboarding checklist.");
+    await context.service.addMessage("user_member", orgId, session.id, randomUUID(), "The checklist is ready.");
+    await context.service.summarize("user_member", orgId, session.id);
+    const before = context.model.calls;
+
+    await expect(context.service.askOrganizationMemory("user_owner", orgId, "Where is the office coffee machine?"))
+      .resolves.toEqual({
+        answer: "I couldn't find enough shared team context to answer that reliably yet.",
+        citations: [],
+      });
+    expect(context.model.calls).toBe(before);
+  });
+
+  it("answers from messages without mixing another team's content", async () => {
+    const context = createContext();
+    const firstOrgId = await createOrgWith(context);
+    const secondOrgId = await createOrgWith(context);
+    const firstSession = await context.service.createSession("user_owner", firstOrgId, "First team roadmap", "update");
+    await context.service.addMessage("user_owner", firstOrgId, firstSession.id, randomUUID(), "The first team roadmap is ready for review.");
+    const secondSession = await context.service.createSession("user_owner", secondOrgId, "Second team roadmap", "update");
+    await context.service.addMessage("user_owner", secondOrgId, secondSession.id, randomUUID(), "The second team secret must stay private.");
+
+    const answer = await context.service.askOrganizationMemory("user_owner", firstOrgId, "What is the roadmap status?");
+
+    expect(answer.citations).toEqual([
+      expect.objectContaining({ sessionId: firstSession.id }),
+    ]);
+    expect(context.model.lastMessages[0]?.content).toContain("first team roadmap");
+    expect(context.model.lastMessages[0]?.content).not.toContain("second team secret");
+  });
+});
+
+describe("organization EOD status", () => {
+  it("allows a member to dismiss their own prompt but blocks a viewer from claiming a submission", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [
+      { uid: "user_member", role: "member" },
+      { uid: "user_viewer", role: "viewer" },
+    ]);
+
+    await expect(
+      context.service.updateEodStatus("user_member", orgId, "2026-09-03", { dismissed: true }),
+    ).resolves.toMatchObject({ uid: "user_member", dismissed: true });
+    await expect(
+      context.service.updateEodStatus("user_viewer", orgId, "2026-09-03", {
+        submittedSessionId: "missing_session",
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("accepts only the member's completed update as an EOD submission", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [
+      { uid: "user_member", role: "member" },
+      { uid: "user_other", role: "member" },
+    ]);
+    const ownUpdate = await context.service.createSession("user_member", orgId, "EOD update", "update");
+    await context.service.addMessage("user_member", orgId, ownUpdate.id, randomUUID(), "Progress and blockers.");
+    const otherUpdate = await context.service.createSession("user_other", orgId, "Other update", "update");
+    await context.service.addMessage("user_other", orgId, otherUpdate.id, randomUUID(), "Other person's update.");
+    const ownDecision = await context.service.createSession("user_member", orgId, "A decision", "decision");
+    await context.service.addMessage("user_member", orgId, ownDecision.id, randomUUID(), "We chose an option.");
+
+    await expect(
+      context.service.updateEodStatus("user_member", orgId, "2026-09-03", {
+        submittedSessionId: otherUpdate.id,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_EOD_SUBMISSION" });
+    await expect(
+      context.service.updateEodStatus("user_member", orgId, "2026-09-03", {
+        submittedSessionId: ownDecision.id,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_EOD_SUBMISSION" });
+    await expect(
+      context.service.updateEodStatus("user_member", orgId, "2026-09-03", {
+        submittedSessionId: ownUpdate.id,
+      }),
+    ).resolves.toMatchObject({ uid: "user_member", submittedSessionId: ownUpdate.id });
+  });
+
+  it("reveals only an aggregate submission count when the owner enables it", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    await expect(context.service.getEodSubmissionCount("user_member", orgId, "2026-09-03"))
+      .resolves.toBeNull();
+    await context.service.updateEodSettings("user_owner", orgId, {
+      enabled: true,
+      timezone: "UTC",
+      activeWeekdays: [1, 2, 3, 4, 5],
+      dueLocalTime: "17:00",
+      questions: ["What moved forward?"],
+      showSubmissionStatus: true,
+    });
+    const update = await context.service.createSession("user_member", orgId, "EOD", "update");
+    await context.service.addMessage("user_member", orgId, update.id, randomUUID(), "Progress.");
+    await context.service.updateEodStatus("user_member", orgId, "2026-09-03", { submittedSessionId: update.id });
+
+    await expect(context.service.getEodSubmissionCount("user_owner", orgId, "2026-09-03"))
+      .resolves.toBe(1);
   });
 });
 
@@ -376,6 +584,40 @@ describe("membership capacity", () => {
 });
 
 describe("organization conversations", () => {
+  it("uses the same concise title and conservative tag lifecycle for team reflections", async () => {
+    const model = new ClassifyingOrganizationModel();
+    model.classification = { title: "Planning a focused launch", tags: ["work"] };
+    const context = createContext(model);
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    const session = await context.service.createSession("user_member", orgId);
+
+    await context.service.addMessage(
+      "user_member",
+      orgId,
+      session.id,
+      randomUUID(),
+      "We need to prepare the product launch plan.",
+    );
+
+    await expect(context.workspace.getSession(orgId, session.id)).resolves.toMatchObject({
+      title: "Planning a focused launch",
+      tags: ["work"],
+    });
+    expect(model.classificationInputs[0]).toMatchObject({ purpose: "initial", scope: "organization" });
+
+    model.classification = { tags: ["goals"] };
+    await context.service.summarize("user_member", orgId, session.id);
+
+    await expect(context.workspace.getSession(orgId, session.id)).resolves.toMatchObject({
+      tags: ["work", "goals"],
+    });
+    expect(model.classificationInputs.at(-1)).toMatchObject({
+      purpose: "summary",
+      scope: "organization",
+      currentTags: ["work"],
+    });
+  });
+
   it("gives viewers read access but never write or model access", async () => {
     const context = createContext();
     const orgId = await createOrgWith(context, [
@@ -405,6 +647,24 @@ describe("organization conversations", () => {
       context.service.createSession("user_viewer", orgId, "Nope"),
     ).rejects.toMatchObject({ status: 403 });
     expect(context.model.calls).toBe(callsBefore);
+  });
+
+  it("lets writers rename active team reflections while viewers and archived sessions remain read-only", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [
+      { uid: "user_member", role: "member" },
+      { uid: "user_viewer", role: "viewer" },
+    ]);
+    const session = await context.service.createSession("user_member", orgId, "Old title");
+
+    await expect(context.service.renameSession("user_member", orgId, session.id, "Clear team title"))
+      .resolves.toMatchObject({ title: "Clear team title" });
+    await expect(context.service.renameSession("user_viewer", orgId, session.id, "Forbidden"))
+      .rejects.toMatchObject({ status: 403 });
+
+    await context.service.archiveSession("user_member", orgId, session.id);
+    await expect(context.service.renameSession("user_member", orgId, session.id, "Archived edit"))
+      .rejects.toMatchObject({ status: 409, code: "SESSION_ARCHIVED" });
   });
 
   it("keeps the model context strictly inside the organization subtree", async () => {
@@ -438,6 +698,44 @@ describe("organization conversations", () => {
     );
     expect(exchange.userMessage.authorUid).toBe("user_member");
     expect(exchange.assistantMessage.authorUid).toBeNull();
+  });
+
+  it("streams a team reply and persists exactly the completed exchange", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [{ uid: "user_member", role: "member" }]);
+    const session = await context.service.createSession("user_member", orgId, "Team retro");
+    const chunks: string[] = [];
+
+    const exchange = await context.service.streamMessage(
+      "user_member",
+      orgId,
+      session.id,
+      randomUUID(),
+      "Stream this shared thought.",
+      (chunk) => chunks.push(chunk),
+    );
+
+    expect(chunks.join("")).toBe("A grounded response for the authenticated journal.");
+    expect(exchange.userMessage.authorUid).toBe("user_member");
+    expect(exchange.assistantMessage.authorUid).toBeNull();
+    expect((await context.service.getSession("user_member", orgId, session.id)).messages).toEqual([
+      exchange.userMessage,
+      exchange.assistantMessage,
+    ]);
+  });
+
+  it("blocks a viewer before opening a team response stream", async () => {
+    const context = createContext();
+    const orgId = await createOrgWith(context, [
+      { uid: "user_member", role: "member" },
+      { uid: "user_viewer", role: "viewer" },
+    ]);
+    const session = await context.service.createSession("user_member", orgId, "Team retro");
+    const callsBefore = context.model.calls;
+
+    await expect(context.service.assertSessionWritable("user_viewer", orgId, session.id))
+      .rejects.toMatchObject({ status: 403 });
+    expect(context.model.calls).toBe(callsBefore);
   });
 
   it("returns the identical exchange for a repeated request id without a second model call", async () => {

@@ -23,8 +23,8 @@ const { installWorkspaceApi, makeDashboard, makeInsight, failure, releaseGate } 
 
 let api: WorkspaceApiStub;
 
-async function renderInsights() {
-  await renderApp("/app/insights");
+async function renderInsights(strictMode = false) {
+  await renderApp("/app/insights", { strictMode });
   const account = makeUser({ uid: "user_alpha", emailVerified: true });
   account.getIdToken = vi.fn().mockResolvedValue("token-user_alpha");
   await signalUser(account);
@@ -52,11 +52,21 @@ describe("insights dashboard page", () => {
     expect(screen.getByText("60% of reflections have one")).toBeInTheDocument();
     expect(screen.getByText("up 0.5 from the previous period")).toBeInTheDocument();
     expect(screen.getByText(/Calm · 2/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Daily streak" })).toBeInTheDocument();
+    expect(screen.getByText("2 days in a row.")).toBeInTheDocument();
+    expect(screen.getByText("Longest").parentElement).toHaveTextContent("4 days");
 
     await user.click(screen.getByText("View chart data as a table"));
     const table = await screen.findByRole("table");
     expect(table).toBeInTheDocument();
     expect(screen.getAllByText("No check-in").length).toBeGreaterThan(0);
+  });
+
+  it("loads rather than remaining on the skeleton when development Strict Mode replays effects", async () => {
+    await renderInsights(true);
+
+    expect(await screen.findByText("Reflections")).toBeInTheDocument();
+    expect(screen.queryByText("Loading insights")).not.toBeInTheDocument();
   });
 
   it("shows an honest empty state that links back to the journal", async () => {
@@ -111,11 +121,28 @@ describe("insights dashboard page", () => {
     expect(screen.getByText("Reflections")).toBeInTheDocument();
     expect(screen.getByText("3.7")).toBeInTheDocument();
 
-    api.dashboard = makeDashboard({ rangeDays: 30, moodAverage: 2.1 });
+    api.dashboard = makeDashboard({
+      rangeDays: 30,
+      moodAverage: 2.1,
+      reflectionStreak: {
+        unit: "week",
+        current: 3,
+        longest: 3,
+        activePeriods: 3,
+        periods: [
+          { start: "2026-08-03", end: "2026-08-09", reflectionCount: 0, isCurrent: false },
+          { start: "2026-08-10", end: "2026-08-16", reflectionCount: 0, isCurrent: false },
+          { start: "2026-08-17", end: "2026-08-23", reflectionCount: 1, isCurrent: false },
+          { start: "2026-08-24", end: "2026-08-30", reflectionCount: 1, isCurrent: false },
+          { start: "2026-08-31", end: "2026-09-06", reflectionCount: 1, isCurrent: true },
+        ],
+      },
+    });
     releaseGate(api);
     await waitFor(() => {
       expect(screen.getByText("2.1")).toBeInTheDocument();
     });
+    expect(screen.getByRole("heading", { name: "Weekly streak" })).toBeInTheDocument();
     const rangeRequests = api.routes.filter((route) =>
       route.url.includes("rangeDays=30"),
     );

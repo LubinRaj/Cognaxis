@@ -57,21 +57,30 @@ describe("organizations list", () => {
         updatedAt: "2026-09-01T09:00:00.000Z",
       },
     ];
+    api.orgSessions = [
+      makeOrgSession({
+        id: "orgs-update-1",
+        title: "Launch status",
+        captureType: "update",
+        updatedAt: "2026-09-03T09:00:00.000Z",
+      }),
+    ];
     await renderAt("/app/organizations");
 
     expect(await screen.findByText("Research Group")).toBeInTheDocument();
     expect(screen.getByText("Owner")).toBeInTheDocument();
+    expect(await screen.findByText(/1 shared reflection/)).toBeInTheDocument();
   });
 
   it("creates an organization and opens its workspace", async () => {
     const user = userEvent.setup();
     await renderAt("/app/organizations");
-    await screen.findByRole("heading", { name: "Organizations" });
+    await screen.findByRole("heading", { name: "Teams" });
 
-    await user.click(screen.getAllByRole("button", { name: "New organization" })[0]);
-    await screen.findByRole("dialog", { name: "New organization" });
+    await user.click(screen.getAllByRole("button", { name: "New team" })[0]);
+    await screen.findByRole("dialog", { name: "New team" });
     await user.type(screen.getByLabelText("Name"), "Product research group");
-    await user.click(screen.getByRole("button", { name: "Create organization" }));
+    await user.click(screen.getByRole("button", { name: "Create team" }));
 
     await waitFor(() => {
       expect(
@@ -125,7 +134,7 @@ describe("organization workspace", () => {
     ).toBeInTheDocument();
   });
 
-  it("lets a member hold a shared conversation with clear attribution", async () => {
+  it("keeps team reflections read-only within Teams", async () => {
     const user = userEvent.setup();
     api.orgDetail = makeOrgDetail();
     api.orgSessions = [makeOrgSession({ id: "orgs-1", createdBy: "user_owner" })];
@@ -140,19 +149,47 @@ describe("organization workspace", () => {
     await renderAt("/app/organizations/org_1");
 
     await user.click(await screen.findByText("Shared reflection orgs-1"));
-    expect(
-      await screen.findByText(/everything in this conversation can be read by every active member/i),
-    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/app/organizations/org_1");
+    expect(await screen.findByRole("heading", { name: "Shared reflection orgs-1" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message to the organization")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New shared reflection" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+  });
 
-    await user.type(
-      screen.getByLabelText("Message to the organization"),
-      "A shared organization thought.",
+  it("does not expose reflection mutation controls in Teams", async () => {
+    const user = userEvent.setup();
+    api.orgDetail = makeOrgDetail();
+    api.orgSessions = [makeOrgSession({ id: "orgs-rename", createdBy: "user_owner" })];
+    api.orgSessionDetails.set(
+      "orgs-rename",
+      makeOrgSessionDetail({ id: "orgs-rename", createdBy: "user_owner" }),
     );
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await renderAt("/app/organizations/org_1");
 
-    expect(await screen.findByText("A grounded reply for the organization.")).toBeInTheDocument();
-    expect(screen.getByText("You")).toBeInTheDocument();
-    expect(screen.getByText("Cognaxis")).toBeInTheDocument();
+    await user.click(await screen.findByText("Shared reflection orgs-rename"));
+    expect(window.location.pathname).toBe("/app/organizations/org_1");
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tags" })).not.toBeInTheDocument();
+  });
+
+  it("keeps archived reflections out of the team conversation", async () => {
+    api.orgDetail = makeOrgDetail({
+      role: "viewer",
+      permissions: {
+        canWrite: false,
+        canManageMembers: false,
+        canViewInvites: false,
+        canInviteAdmin: false,
+        canUpdateSettings: false,
+        canViewAudit: false,
+      },
+    });
+    api.orgSessions = [makeOrgSession({ id: "orgs-archived", status: "archived", createdBy: "user_owner" })];
+    await renderAt("/app/organizations/org_1");
+    await screen.findByText("No shared reflections yet");
+    expect(screen.queryByText(/Archived reflections/)).not.toBeInTheDocument();
+    expect(api.routes.some((route) => route.url.includes("status=archived"))).toBe(false);
   });
 
   it("creates a one-time invitation link with the secret only in the fragment", async () => {

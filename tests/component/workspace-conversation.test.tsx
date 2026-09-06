@@ -152,7 +152,8 @@ describe("conversation thread", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(await screen.findByTestId("response-pending")).toBeInTheDocument();
-    expect(screen.getByText("Cognaxis is responding…")).toBeInTheDocument();
+    expect(screen.getByText("Reflecting…")).toBeInTheDocument();
+    expect(screen.getByText("Cognaxis · Responding…")).toBeInTheDocument();
 
     releaseGate(api);
     await waitFor(() => expect(screen.queryByTestId("response-pending")).not.toBeInTheDocument());

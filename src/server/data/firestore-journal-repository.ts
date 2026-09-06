@@ -1,5 +1,6 @@
 import { Timestamp, getFirestore, type Firestore } from "firebase-admin/firestore";
 import type {
+  CaptureType,
   JournalMessage,
   JournalSession,
   PersonalMemory,
@@ -10,12 +11,16 @@ import type {
   SaveMessageExchangeInput,
   SaveSummaryInput,
 } from "./journal-repository.js";
+import { isPlaceholderReflectionTitle } from "../../shared/reflection-title.js";
+import { reflectionTagKey, sanitizeReflectionTags } from "../../shared/reflection-tags.js";
 
 type StoredSession = {
   title: string;
   status: "active" | "archived";
   messageCount: number;
   summarizedMessageCount: number;
+  captureType?: CaptureType;
+  tags?: string[];
   createdBy: string;
   scopeType: "personal";
   scopeId: string;
@@ -27,6 +32,7 @@ type StoredSession = {
 type StoredMessage = {
   role: "user" | "model";
   content: string;
+  attachmentIds?: string[];
   sequence: number;
   createdBy: string;
   scopeType: "personal";
@@ -61,6 +67,13 @@ type StoredMemory = {
   updatedAt: Timestamp;
 };
 
+type StoredTag = {
+  value: string;
+  schemaVersion: 1;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+};
+
 function timestampToIso(value: unknown): string {
   if (value instanceof Timestamp) return value.toDate().toISOString();
   return new Date(0).toISOString();
@@ -70,9 +83,12 @@ function toSession(id: string, data: StoredSession): JournalSession {
   return {
     id,
     title: data.title,
-    status: data.status,
+    // Sessions created before archiving was introduced have no status field and remain active.
+    status: data.status ?? "active",
     messageCount: data.messageCount,
     summarizedMessageCount: data.summarizedMessageCount,
+    captureType: data.captureType ?? "reflection",
+    tags: Array.isArray(data.tags) ? [...data.tags] : [],
     createdAt: timestampToIso(data.createdAt),
     updatedAt: timestampToIso(data.updatedAt),
   };
@@ -83,6 +99,7 @@ function toMessage(id: string, data: StoredMessage): JournalMessage {
     id,
     role: data.role,
     content: data.content,
+    ...(data.attachmentIds && data.attachmentIds.length > 0 ? { attachmentIds: [...data.attachmentIds] } : {}),
     createdAt: timestampToIso(data.createdAt),
   };
 }
@@ -116,7 +133,15 @@ export class FirestoreJournalRepository implements JournalRepository {
     return this.sessionRef(uid, sessionId).collection("exchanges").doc(requestId);
   }
 
-  async createSession(uid: string, title: string): Promise<JournalSession> {
+  private tagRef(uid: string, tag: string) {
+    return this.firestore.doc(`users/${uid}/reflectionTags/${reflectionTagKey(tag)}`);
+  }
+
+  async createSession(
+    uid: string,
+    title: string,
+    captureType: CaptureType = "reflection",
+  ): Promise<JournalSession> {
     const reference = this.firestore.collection(`users/${uid}/personalSessions`).doc();
     const now = Timestamp.now();
     const data: StoredSession = {
@@ -124,6 +149,8 @@ export class FirestoreJournalRepository implements JournalRepository {
       status: "active",
       messageCount: 0,
       summarizedMessageCount: 0,
+      captureType,
+      tags: [],
       createdBy: uid,
       scopeType: "personal",
       scopeId: uid,
@@ -136,16 +163,78 @@ export class FirestoreJournalRepository implements JournalRepository {
     return toSession(reference.id, data);
   }
 
-  async listSessions(uid: string, limit: number): Promise<JournalSession[]> {
+  async renameSession(uid: string, sessionId: string, title: string): Promise<JournalSession> {
+    const reference = this.sessionRef(uid, sessionId);
+    const now = Timestamp.now();
+    let updated: JournalSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      const data = snapshot.data() as StoredSession;
+      if ((data.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
+      transaction.update(reference, { title, updatedAt: now });
+      updated = toSession(sessionId, { ...data, title, updatedAt: now });
+    });
+    if (!updated) throw new Error("SESSION_NOT_FOUND");
+    return updated;
+  }
+
+  async setSessionTags(uid: string, sessionId: string, tags: string[]): Promise<JournalSession> {
+    const reference = this.sessionRef(uid, sessionId);
+    const now = Timestamp.now();
+    let updated: JournalSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      const data = snapshot.data() as StoredSession;
+      if ((data.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
+      transaction.update(reference, { tags: [...tags], updatedAt: now });
+      updated = toSession(sessionId, { ...data, tags: [...tags], updatedAt: now });
+    });
+    if (!updated) throw new Error("SESSION_NOT_FOUND");
+    return updated;
+  }
+
+  async listTags(uid: string, limit: number): Promise<string[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const [catalog, sessions] = await Promise.all([
+      this.firestore.collection(`users/${uid}/reflectionTags`).orderBy("value", "asc").limit(safeLimit).get(),
+      this.firestore.collection(`users/${uid}/personalSessions`).orderBy("updatedAt", "desc").limit(200).get(),
+    ]);
+    return sanitizeReflectionTags([
+      ...catalog.docs.map((document) => (document.data() as StoredTag).value),
+      ...sessions.docs.flatMap((document) => (document.data() as StoredSession).tags ?? []),
+    ], safeLimit).sort((left, right) => left.localeCompare(right));
+  }
+
+  async registerTags(uid: string, tags: string[]): Promise<void> {
+    const values = sanitizeReflectionTags(tags, 50);
+    if (values.length === 0) return;
+    const now = Timestamp.now();
+    await this.firestore.runTransaction(async (transaction) => {
+      const references = values.map((tag) => this.tagRef(uid, tag));
+      const snapshots = await Promise.all(references.map((reference) => transaction.get(reference)));
+      for (let index = 0; index < references.length; index += 1) {
+        if (snapshots[index]?.exists) {
+          transaction.update(references[index], { updatedAt: now });
+        } else {
+          const data: StoredTag = { value: values[index], schemaVersion: 1, createdAt: now, updatedAt: now };
+          transaction.create(references[index], data);
+        }
+      }
+    });
+  }
+
+  async listSessions(uid: string, limit: number, status: JournalSession["status"] = "active"): Promise<JournalSession[]> {
     const snapshot = await this.firestore
       .collection(`users/${uid}/personalSessions`)
       .orderBy("updatedAt", "desc")
-      .limit(limit)
       .get();
 
-    return snapshot.docs.map((document) =>
-      toSession(document.id, document.data() as StoredSession),
-    );
+    return snapshot.docs
+      .map((document) => toSession(document.id, document.data() as StoredSession))
+      .filter((session) => session.status === status)
+      .slice(0, limit);
   }
 
   async getSession(uid: string, sessionId: string): Promise<JournalSession | null> {
@@ -166,9 +255,9 @@ export class FirestoreJournalRepository implements JournalRepository {
       .limit(limit)
       .get();
 
-    return snapshot.docs.map((document) =>
-      toSession(document.id, document.data() as StoredSession),
-    );
+    return snapshot.docs
+      .map((document) => toSession(document.id, document.data() as StoredSession))
+      .filter((session) => session.status === "active");
   }
 
   async listMessages(
@@ -240,6 +329,7 @@ export class FirestoreJournalRepository implements JournalRepository {
       if (exchangeSnapshot.exists) return false;
 
       const storedSession = sessionSnapshot.data() as StoredSession;
+      if ((storedSession.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
       if (storedSession.messageCount + 2 > input.maxMessageCount) {
         throw new Error("SESSION_LIMIT_REACHED");
       }
@@ -247,6 +337,7 @@ export class FirestoreJournalRepository implements JournalRepository {
       const userData: StoredMessage = {
         role: "user",
         content: input.userContent,
+        ...(input.attachmentIds && input.attachmentIds.length > 0 ? { attachmentIds: [...input.attachmentIds] } : {}),
         sequence: storedSession.messageCount + 1,
         createdBy: uid,
         scopeType: "personal",
@@ -279,6 +370,8 @@ export class FirestoreJournalRepository implements JournalRepository {
       transaction.create(exchange, exchangeData);
       transaction.update(session, {
         messageCount: storedSession.messageCount + 2,
+        ...(input.title && isPlaceholderReflectionTitle(storedSession.title) ? { title: input.title } : {}),
+        ...(input.tags && isPlaceholderReflectionTitle(storedSession.title) ? { tags: [...input.tags] } : {}),
         updatedAt: now,
       });
 
@@ -320,6 +413,8 @@ export class FirestoreJournalRepository implements JournalRepository {
     await this.firestore.runTransaction(async (transaction) => {
       const sessionSnapshot = await transaction.get(session);
       if (!sessionSnapshot.exists) throw new Error("SESSION_NOT_FOUND");
+      const storedSession = sessionSnapshot.data() as StoredSession;
+      if ((storedSession.status ?? "active") !== "active") throw new Error("SESSION_ARCHIVED");
       transaction.set(reference, data);
       transaction.update(session, {
         summarizedMessageCount: input.sourceMessageCount,
@@ -334,6 +429,20 @@ export class FirestoreJournalRepository implements JournalRepository {
     const document = await this.memoryRef(uid, sessionId).get();
     if (!document.exists) return null;
     return toMemory(document.id, document.data() as StoredMemory);
+  }
+
+  async setSessionStatus(uid: string, sessionId: string, status: JournalSession["status"]): Promise<JournalSession | null> {
+    const reference = this.sessionRef(uid, sessionId);
+    const now = Timestamp.now();
+    let updated: JournalSession | null = null;
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) return;
+      const data = snapshot.data() as StoredSession;
+      transaction.update(reference, { status, updatedAt: now });
+      updated = toSession(sessionId, { ...data, status, updatedAt: now });
+    });
+    return updated;
   }
 
   async deleteSession(uid: string, sessionId: string): Promise<boolean> {

@@ -17,7 +17,9 @@ const AuthActionRoute = lazy(() => import("./components/auth-action/AuthActionRo
 
 // Feature pages load on demand so the core journal stays fast.
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
+const AskMePage = lazy(() => import("./pages/AskMePage"));
 const MapPage = lazy(() => import("./pages/MapPage"));
+const ArchivesPage = lazy(() => import("./pages/ArchivesPage"));
 const OrganizationsPage = lazy(() => import("./pages/OrganizationsPage"));
 const OrganizationWorkspacePage = lazy(() => import("./pages/OrganizationWorkspacePage"));
 const JoinPage = lazy(() => import("./pages/JoinPage"));
@@ -142,7 +144,9 @@ export function App() {
             <Route index element={<Navigate to="/app/journal" replace />} />
             <Route path="journal" element={<JournalPage />} />
             <Route path="insights" element={<InsightsPage />} />
+            <Route path="ask" element={<AskMePage />} />
             <Route path="map" element={<MapPage />} />
+            <Route path="archives" element={<ArchivesPage />} />
             <Route path="organizations" element={<OrganizationsPage />} />
             <Route path="organizations/:orgId" element={<OrganizationWorkspaceRoute />} />
             <Route path="admin" element={<AdminPage />} />

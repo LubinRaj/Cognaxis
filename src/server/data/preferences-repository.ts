@@ -4,6 +4,7 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "createdAt" | "updatedAt"> =
   timezone: "UTC",
   weekStartsOn: "monday",
   insightRangeDays: 7,
+  locationMode: "off",
   schemaVersion: 1,
 };
 

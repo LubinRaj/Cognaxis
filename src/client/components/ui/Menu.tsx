@@ -19,6 +19,8 @@ export type MenuItemDescriptor = {
   /** Renders a separating rule above this item. */
   separated?: boolean;
   description?: string;
+  /** Optional grouped controls rendered directly beneath this menu item. */
+  submenu?: ReactNode;
 };
 
 export type MenuProps = {
@@ -203,6 +205,11 @@ export function Menu({
                   )}
                 </span>
               </button>
+              {item.submenu && (
+                <div className="border-outline-variant/60 ml-3 mt-1 mb-2 border-l pl-3">
+                  {item.submenu}
+                </div>
+              )}
             </div>
           ))}
         </div>

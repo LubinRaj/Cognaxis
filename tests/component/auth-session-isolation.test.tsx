@@ -82,7 +82,7 @@ describe("session isolation and recovery", () => {
     const { container } = await renderApp();
 
     expect(container.textContent).toContain("Preparing your private workspace…");
-    expect(container.textContent).not.toContain("Think freely");
+    expect(container.textContent).not.toContain("Think clearly");
     expect(container.textContent).not.toContain("Welcome back");
 
     await signalUser(accountFor("user_alpha"));
@@ -119,7 +119,7 @@ describe("session isolation and recovery", () => {
 
     await waitFor(() => expect(firebaseAuthMocks.signOut).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryAllByText(ALPHA_TITLE)).toHaveLength(0));
-    expect(await screen.findByRole("heading", { name: /Think freely/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Think clearly/i })).toBeInTheDocument();
   });
 
   it("shows the session-expired screen after a terminal token failure", async () => {

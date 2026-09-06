@@ -13,6 +13,8 @@ import {
   organizationSystemInstruction,
 } from "./services/conversation-model.js";
 import { FirestoreUsageRepository } from "./data/firestore-usage-repository.js";
+import { FirestoreAttachmentRepository } from "./data/firestore-attachment-repository.js";
+import { FirestoreMemoryIndexRepository } from "./data/firestore-memory-index-repository.js";
 import { OrganizationService } from "./services/organization-service.js";
 import { PlatformAdminService } from "./services/platform-admin-service.js";
 import { UsageRecorder } from "./services/usage-recorder.js";
@@ -22,6 +24,8 @@ import { InsightInvalidationService, InsightService } from "./services/insight-s
 import { JournalService } from "./services/journal-service.js";
 import { PlatformUserService } from "./services/platform-user-service.js";
 import { SignalService } from "./services/signal-service.js";
+import { MemoryIndexService } from "./services/memory-index-service.js";
+import { ProfilePhotoService } from "./services/profile-photo-service.js";
 import { EnvSecretProvider } from "./services/secret-provider.js";
 import { startServer } from "./start.js";
 
@@ -41,6 +45,13 @@ const preferencesRepository = new FirestorePreferencesRepository();
 const insightRepository = new FirestoreInsightRepository();
 const usageRepository = new FirestoreUsageRepository();
 const usageRecorder = new UsageRecorder(usageRepository);
+const attachmentRepository = new FirestoreAttachmentRepository(
+  undefined,
+  undefined,
+  config.FIREBASE_STORAGE_BUCKET,
+);
+const memoryIndexRepository = new FirestoreMemoryIndexRepository();
+const personalMemoryIndex = new MemoryIndexService(memoryIndexRepository, model);
 const insightInvalidation = new InsightInvalidationService(insightRepository, preferencesRepository);
 const signalService = new SignalService(
   signalRepository,
@@ -64,21 +75,30 @@ const journalService = new JournalService(
   [
     (uid, sessionId) => signalService.removeForDeletedSession(uid, sessionId),
     (uid, sessionId) => insightInvalidation.onSessionDeleted(uid, sessionId),
+    (uid, sessionId) => attachmentRepository.deleteForSession({ type: "personal", scopeId: uid }, sessionId),
+    (uid, sessionId) => memoryIndexRepository.deleteForSession({ type: "personal", scopeId: uid }, sessionId),
   ],
   [(uid, sessionCreatedAt) => insightInvalidation.onContentChanged(uid, sessionCreatedAt)],
   usageRecorder,
+  attachmentRepository,
+  personalMemoryIndex,
 );
 const dashboardService = new DashboardService(signalRepository, repository, preferencesRepository);
 const platformUserRepository = new FirestorePlatformUserRepository();
 const platformUserService = new PlatformUserService(platformUserRepository);
+const profilePhotoService = new ProfilePhotoService(undefined, undefined, config.FIREBASE_STORAGE_BUCKET);
 const organizationRepository = new FirestoreOrganizationRepository();
+const organizationModel = new GeminiConversationModel(config, secrets, organizationSystemInstruction);
+const organizationMemoryIndex = new MemoryIndexService(memoryIndexRepository, organizationModel);
 const organizationService = new OrganizationService(
   organizationRepository,
   new FirestoreOrganizationWorkspaceRepository(),
   platformUserRepository,
-  new GeminiConversationModel(config, secrets, organizationSystemInstruction),
+  organizationModel,
   undefined,
   usageRecorder,
+  attachmentRepository,
+  organizationMemoryIndex,
 );
 const platformAdminService = new PlatformAdminService(
   platformUserRepository,
@@ -91,6 +111,7 @@ const app = await createApp({
   verifier,
   journalService,
   platformUserService,
+  profilePhotoService,
   signalService,
   dashboardService,
   insightService,

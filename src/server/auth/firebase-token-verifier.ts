@@ -4,11 +4,12 @@ import type { AppConfig } from "../config/env.js";
 import type { AuthenticatedPrincipal, TokenVerifier } from "../types.js";
 
 export class FirebaseTokenVerifier implements TokenVerifier {
-  constructor(config: Pick<AppConfig, "GOOGLE_CLOUD_PROJECT">) {
+  constructor(config: Pick<AppConfig, "GOOGLE_CLOUD_PROJECT" | "FIREBASE_STORAGE_BUCKET">) {
     if (getApps().length === 0) {
       initializeApp({
         credential: applicationDefault(),
         projectId: config.GOOGLE_CLOUD_PROJECT,
+        storageBucket: config.FIREBASE_STORAGE_BUCKET,
       });
     }
   }

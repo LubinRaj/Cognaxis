@@ -33,6 +33,7 @@ export function buildMarkdownExport(session: SessionDetail, generatedAt: Date): 
 
   lines.push(`# ${session.title}`, "");
   lines.push(`Exported ${generatedAt.toISOString()}`, "");
+  if (session.tags.length > 0) lines.push(`Tags: ${session.tags.join(", ")}`, "");
   lines.push(
     "This file contains private journal content. Once downloaded it is no longer protected by Cognaxis.",
     "",
@@ -76,6 +77,7 @@ export function buildJsonExport(session: SessionDetail, generatedAt: Date): stri
       reflection: {
         id: session.id,
         title: session.title,
+        tags: session.tags,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         messageCount: session.messageCount,

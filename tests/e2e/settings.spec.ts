@@ -36,16 +36,20 @@ test.describe("settings and account controls", () => {
   }) => {
     const account = await createVerifiedUser("accountmenu");
     await signIn(page, account);
+    await page.goto("/app/insights");
+    await expect(page.getByRole("heading", { name: "Insights", exact: true })).toBeVisible();
 
+    // The permanent navigation keeps account controls available away from the journal.
     // Theme switch through the account menu applies immediately.
     await accountMenuTrigger(page, account).click();
     const menu = page.getByRole("menu", { name: "Account and appearance" });
     await expect(menu).toBeVisible();
-    await menu.getByRole("menuitem", { name: "Dark" }).click();
+    await menu.getByRole("menuitemradio", { name: "Dark" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     // The protection explainer opens and closes.
-    await accountMenuTrigger(page, account).click();
+    // Theme choices are deliberately inline controls within the open account menu, so choosing
+    // one does not dismiss the menu before the next account action.
     await menu.getByRole("menuitem", { name: "How your journal is protected" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("How your journal is protected")).toBeVisible();

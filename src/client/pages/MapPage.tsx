@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import type { User } from "firebase/auth";
-import type { MapPoint } from "../../shared/schemas";
+import type { MapPoint, Preferences } from "../../shared/schemas";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiClient, ApiError } from "../lib/api-client";
 import { mapsConfigured } from "../lib/maps-loader";
@@ -49,6 +49,9 @@ export function MapPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapFailed, setMapFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [preferences, setPreferences] = useState<Preferences | null>(null);
+  const [locationSaving, setLocationSaving] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const requestRef = useRef(0);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -75,6 +78,32 @@ export function MapPage() {
     };
   }, [api, reloadToken]);
 
+  useEffect(() => {
+    api
+      .getPreferences()
+      .then(setPreferences)
+      .catch(() => setLocationError("Location preferences could not be loaded."));
+  }, [api]);
+
+  async function updateLocationMode(locationMode: Preferences["locationMode"]) {
+    if (!preferences) return;
+    setLocationSaving(true);
+    setLocationError(null);
+    try {
+      const saved = await api.savePreferences({
+        timezone: preferences.timezone,
+        weekStartsOn: preferences.weekStartsOn,
+        insightRangeDays: preferences.insightRangeDays,
+        locationMode,
+      });
+      setPreferences(saved);
+    } catch (error: unknown) {
+      setLocationError(error instanceof ApiError ? error.message : "Location preferences could not be saved.");
+    } finally {
+      setLocationSaving(false);
+    }
+  }
+
   const selected = points.find((point) => point.sessionId === selectedId) ?? points[0] ?? null;
   const showMap = mapsConfigured() && !mapFailed && points.length > 0;
 
@@ -94,6 +123,35 @@ export function MapPage() {
             this map.
           </p>
         </header>
+
+        <section className="border-outline-variant bg-surface-container-low mt-5 rounded-card border p-4" aria-label="Location preferences">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-on-surface text-sm font-medium">Location on personal check-ins</h2>
+              <p className="text-on-surface-variant mt-1 max-w-2xl text-xs">
+                Off is the default. Choosing a mode sets the suggested precision; your browser only
+                asks for location after you explicitly choose “Use my current location”.
+              </p>
+            </div>
+            <label className="text-on-surface flex items-center gap-2 text-sm">
+              <span className="sr-only">Location on captures</span>
+              <select
+                aria-label="Location on captures"
+                value={preferences?.locationMode ?? "off"}
+                disabled={!preferences || locationSaving}
+                onChange={(event) =>
+                  void updateLocationMode(event.target.value as Preferences["locationMode"])
+                }
+                className="border-outline-variant bg-surface text-on-surface focus-visible:outline-focus-ring rounded-field border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="off">Off</option>
+                <option value="approximate">Approximate place</option>
+                <option value="exact">Exact place</option>
+              </select>
+            </label>
+          </div>
+          {locationError && <p className="text-error mt-2 text-xs" role="status">{locationError}</p>}
+        </section>
 
         {!mapsConfigured() && points.length > 0 && (
           <div className="mt-4">
@@ -147,7 +205,7 @@ export function MapPage() {
         ) : (
           <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
             {showMap && selected && (
-              <Suspense fallback={<Skeleton className="h-[360px] rounded-card" />}>
+              <Suspense fallback={<Skeleton className="h-64 rounded-card sm:h-[360px]" />}>
                 <MapCanvas
                   center={{ latitude: selected.latitude, longitude: selected.longitude }}
                   zoom={12}
@@ -160,7 +218,7 @@ export function MapPage() {
                   selectedId={selected.sessionId}
                   onSelect={selectFromMap}
                   onLoadError={() => setMapFailed(true)}
-                  className="border-outline-variant h-[360px] w-full overflow-hidden rounded-card border"
+                  className="border-outline-variant h-64 w-full overflow-hidden rounded-card border sm:h-[360px]"
                 />
               </Suspense>
             )}

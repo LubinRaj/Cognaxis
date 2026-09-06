@@ -28,6 +28,7 @@ describe("server startup", () => {
       NODE_ENV: "production",
       APP_ORIGIN: "https://cognaxis.test",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
+      FIREBASE_STORAGE_BUCKET: "synthetic-project.firebasestorage.app",
     } as const;
     expect(() => loadConfig(production)).toThrow();
     expect(
@@ -35,11 +36,24 @@ describe("server startup", () => {
     ).toBe("synthetic-production-key");
   });
 
+  it("uses one opt-in flag for the Agent Platform fallback", () => {
+    expect(loadConfig({ NODE_ENV: "test" }).AGENT_PLATFORM_FALLBACK_ENABLED).toBe(false);
+    expect(
+      loadConfig({
+        NODE_ENV: "test",
+        GOOGLE_CLOUD_PROJECT: "synthetic-project",
+        GEMINI_MODEL: "gemini-3.7-flash",
+        AGENT_PLATFORM_FALLBACK_ENABLED: "true",
+      }).AGENT_PLATFORM_FALLBACK_ENABLED,
+    ).toBe(true);
+  });
+
   it("requires an exact application origin in production", () => {
     const production = {
       NODE_ENV: "production",
       GOOGLE_CLOUD_PROJECT: "synthetic-project",
       GEMINI_API_KEY: "synthetic-production-key",
+      FIREBASE_STORAGE_BUCKET: "synthetic-project.firebasestorage.app",
     } as const;
 
     expect(() => loadConfig(production)).toThrow();

@@ -41,6 +41,8 @@ export function syncSessionFromDetail(
     status: detail.status,
     messageCount: detail.messageCount,
     summarizedMessageCount: detail.summarizedMessageCount,
+    captureType: detail.captureType,
+    tags: [...(detail.tags ?? [])],
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt,
   };
@@ -61,20 +63,24 @@ export function nextSelectionAfterDelete(
   return remaining[Math.min(index, remaining.length - 1)].id;
 }
 
-/** Title-only filtering of the sessions already loaded from the API. */
+/** Filters the sessions already loaded from the API by title or tag. */
 export function filterSessions(
   sessions: readonly JournalSession[],
   query: string,
 ): JournalSession[] {
   const trimmed = query.trim().toLocaleLowerCase();
   if (trimmed.length === 0) return [...sessions];
-  return sessions.filter((session) => session.title.toLocaleLowerCase().includes(trimmed));
+  return sessions.filter((session) =>
+    session.title.toLocaleLowerCase().includes(trimmed) ||
+    (session.tags ?? []).some((tag) => tag.toLocaleLowerCase().includes(trimmed)),
+  );
 }
 
 export type MessageExchange = {
   userMessage: SessionDetail["messages"][number];
   assistantMessage: SessionDetail["messages"][number];
   summary: PersonalMemory | null;
+  session?: JournalSession;
 };
 
 /**
@@ -98,6 +104,12 @@ export function applyExchange(
 
   return {
     ...detail,
+    ...(exchange.session ? {
+      title: exchange.session.title,
+      tags: [...exchange.session.tags],
+      status: exchange.session.status,
+      updatedAt: exchange.session.updatedAt,
+    } : {}),
     messages,
     messageCount,
     summarizedMessageCount: exchange.summary ? messageCount : detail.summarizedMessageCount,

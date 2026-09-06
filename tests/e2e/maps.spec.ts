@@ -15,13 +15,13 @@ test.use({
 async function saveLocatedCheckIn(page: Page, label: string) {
   await startReflection(page);
   await page.getByRole("button", { name: "Add reflection check-in" }).click();
-  await expect(page.getByRole("heading", { name: "Reflection check-in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Private check-in" })).toBeVisible();
   await page.getByRole("button", { name: "Use my current location" }).click();
   await expect(page.getByTestId("location-coordinates")).toBeVisible();
-  await expect(page.getByRole("radio", { name: /Approximate — rounded/ })).toBeChecked();
+  await expect(page.getByRole("radio", { name: /Approximate - rounded/ })).toBeChecked();
   await page.getByLabel("Place label").fill(label);
   await page.getByRole("button", { name: "Save check-in" }).click();
-  await expect(page.getByRole("heading", { name: "Reflection check-in" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Private check-in" })).not.toBeVisible();
 }
 
 test.describe("map page", () => {

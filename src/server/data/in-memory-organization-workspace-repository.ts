@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  CaptureType,
   OrganizationMessage,
   OrganizationSession,
   OrganizationSummary,
@@ -13,12 +14,15 @@ import type {
   SessionActorConstraint,
 } from "./organization-repository.js";
 import type { InMemoryOrganizationRepository } from "./in-memory-organization-repository.js";
+import { isPlaceholderReflectionTitle } from "../../shared/reflection-title.js";
+import { sanitizeReflectionTags } from "../../shared/reflection-tags.js";
 
 type WorkspaceStore = {
   sessions: Map<string, OrganizationSession>;
   messages: Map<string, OrganizationMessage[]>;
   exchanges: Map<string, OrganizationExchange>;
   summaries: Map<string, OrganizationSummary>;
+  tags: Map<string, string>;
 };
 
 export class InMemoryOrganizationWorkspaceRepository
@@ -35,7 +39,7 @@ export class InMemoryOrganizationWorkspaceRepository
   private workspace(orgId: string): WorkspaceStore {
     let store = this.workspaces.get(orgId);
     if (!store) {
-      store = { sessions: new Map(), messages: new Map(), exchanges: new Map(), summaries: new Map() };
+      store = { sessions: new Map(), messages: new Map(), exchanges: new Map(), summaries: new Map(), tags: new Map() };
       this.workspaces.set(orgId, store);
     }
     return store;
@@ -60,6 +64,7 @@ export class InMemoryOrganizationWorkspaceRepository
     orgId: string,
     actor: ActorConstraint,
     title: string,
+    captureType: CaptureType = "reflection",
   ): Promise<OrganizationSession> {
     this.requireActor(orgId, actor);
     const timestamp = this.now().toISOString();
@@ -69,6 +74,8 @@ export class InMemoryOrganizationWorkspaceRepository
       status: "active",
       messageCount: 0,
       summarizedMessageCount: 0,
+      captureType,
+      tags: [],
       createdBy: actor.uid,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -78,11 +85,57 @@ export class InMemoryOrganizationWorkspaceRepository
     return structuredClone(session);
   }
 
-  async listSessions(orgId: string, limit: number): Promise<OrganizationSession[]> {
+  async listSessions(orgId: string, limit: number, status: OrganizationSession["status"] = "active"): Promise<OrganizationSession[]> {
     return [...this.workspace(orgId).sessions.values()]
+      .filter((session) => session.status === status)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit)
       .map((session) => structuredClone(session));
+  }
+
+  async renameSession(
+    orgId: string,
+    sessionId: string,
+    title: string,
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession> {
+    this.requireActor(orgId, actor);
+    const session = this.workspace(orgId).sessions.get(sessionId);
+    if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
+    session.title = title;
+    session.updatedAt = this.now().toISOString();
+    return structuredClone(session);
+  }
+
+  async setSessionTags(
+    orgId: string,
+    sessionId: string,
+    tags: string[],
+    actor: ActorConstraint,
+  ): Promise<OrganizationSession> {
+    this.requireActor(orgId, actor);
+    const session = this.workspace(orgId).sessions.get(sessionId);
+    if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
+    session.tags = [...tags];
+    session.updatedAt = this.now().toISOString();
+    return structuredClone(session);
+  }
+
+  async listTags(orgId: string, limit: number): Promise<string[]> {
+    const store = this.workspace(orgId);
+    const known = [
+      ...store.tags.values(),
+      ...[...store.sessions.values()].flatMap((session) => session.tags),
+    ];
+    return sanitizeReflectionTags(known, limit).sort((left, right) => left.localeCompare(right));
+  }
+
+  async registerTags(orgId: string, tags: string[], actor: ActorConstraint): Promise<void> {
+    this.requireActor(orgId, actor);
+    const store = this.workspace(orgId);
+    for (const tag of sanitizeReflectionTags(tags, 50)) store.tags.set(tag, tag);
   }
 
   async getSession(orgId: string, sessionId: string): Promise<OrganizationSession | null> {
@@ -119,6 +172,7 @@ export class InMemoryOrganizationWorkspaceRepository
     const store = this.workspace(orgId);
     const session = store.sessions.get(sessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
     if (session.messageCount + 2 > input.maxMessageCount) {
       throw new Error("SESSION_LIMIT_REACHED");
     }
@@ -128,6 +182,7 @@ export class InMemoryOrganizationWorkspaceRepository
       id: randomUUID(),
       role: "user",
       content: input.userContent,
+      ...(input.attachmentIds && input.attachmentIds.length > 0 ? { attachmentIds: [...input.attachmentIds] } : {}),
       authorUid: input.authorUid,
       createdAt: timestamp,
     };
@@ -142,6 +197,9 @@ export class InMemoryOrganizationWorkspaceRepository
     messages.push(userMessage, assistantMessage);
     store.messages.set(sessionId, messages);
     session.messageCount = messages.length;
+    const placeholderTitle = isPlaceholderReflectionTitle(session.title, true);
+    if (input.title && placeholderTitle) session.title = input.title;
+    if (input.tags && placeholderTitle) session.tags = [...input.tags];
     session.updatedAt = timestamp;
 
     const exchange: OrganizationExchange = {
@@ -162,6 +220,7 @@ export class InMemoryOrganizationWorkspaceRepository
     const store = this.workspace(orgId);
     const session = store.sessions.get(input.sourceSessionId);
     if (!session) throw new Error("SESSION_NOT_FOUND");
+    if (session.status !== "active") throw new Error("SESSION_ARCHIVED");
 
     const timestamp = this.now().toISOString();
     const existing = store.summaries.get(input.sourceSessionId);
@@ -184,6 +243,24 @@ export class InMemoryOrganizationWorkspaceRepository
   async getSummary(orgId: string, sessionId: string): Promise<OrganizationSummary | null> {
     const summary = this.workspace(orgId).summaries.get(sessionId);
     return summary ? structuredClone(summary) : null;
+  }
+
+  async setSessionStatus(
+    orgId: string,
+    sessionId: string,
+    status: OrganizationSession["status"],
+    actor: SessionActorConstraint,
+  ): Promise<OrganizationSession | null> {
+    const store = this.workspace(orgId);
+    const session = store.sessions.get(sessionId);
+    if (!session) return null;
+    const allowedRoles = session.createdBy === actor.uid
+      ? [...actor.allowedRoles, ...(actor.creatorRoles ?? [])]
+      : actor.allowedRoles;
+    this.requireActor(orgId, { uid: actor.uid, allowedRoles });
+    session.status = status;
+    session.updatedAt = this.now().toISOString();
+    return structuredClone(session);
   }
 
   async deleteSession(

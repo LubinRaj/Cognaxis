@@ -1,5 +1,11 @@
 import { addDays, localDateOf } from "../../shared/dates.js";
-import type { MapPoint, PersonalSignal, UpsertSignalInput } from "../../shared/schemas.js";
+import type {
+  CreateCheckInInput,
+  MapPoint,
+  PersonalCheckIn,
+  PersonalSignal,
+  UpsertSignalInput,
+} from "../../shared/schemas.js";
 import type { JournalRepository } from "../data/journal-repository.js";
 import type { SignalRepository } from "../data/signal-repository.js";
 import { AppError, notFound } from "../errors.js";
@@ -46,11 +52,47 @@ export class SignalService {
   private async requireOwnedSession(uid: string, sessionId: string): Promise<void> {
     const session = await this.journal.getSession(uid, sessionId);
     if (!session) throw notFound();
+    if (session.status !== "active") {
+      throw new AppError(409, "SESSION_ARCHIVED", "This session is archived.");
+    }
+  }
+
+  private asSignal(checkIn: PersonalCheckIn): PersonalSignal {
+    const signal = { ...checkIn, schemaVersion: 1 } as PersonalSignal & {
+      id?: string;
+      anchorMessageId?: string | null;
+    };
+    delete signal.id;
+    delete signal.anchorMessageId;
+    return signal;
   }
 
   async getForSession(uid: string, sessionId: string): Promise<PersonalSignal | null> {
     await this.requireOwnedSession(uid, sessionId);
-    return this.signals.get(uid, sessionId);
+    const [legacy, events] = await Promise.all([
+      this.signals.get(uid, sessionId),
+      this.signals.listCheckIns(uid, sessionId, 1),
+    ]);
+    const latest = events[0] ?? null;
+    if (!latest) return legacy;
+    if (!legacy || latest.capturedAt >= legacy.updatedAt) return this.asSignal(latest);
+    return legacy;
+  }
+
+  private validateCheckInTime(input: UpsertSignalInput): void {
+    const localToday = localDateOf(this.now(), input.timezone);
+    const allowed = [addDays(localToday, -1), localToday, addDays(localToday, 1)];
+    if (!allowed.includes(input.localDate)) {
+      throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+    }
+  }
+
+  private prepareLocation(input: UpsertSignalInput): UpsertSignalInput["location"] {
+    return input.location === null
+      ? null
+      : input.location.precision === "approximate"
+        ? { ...input.location, latitude: roundApproximate(input.location.latitude), longitude: roundApproximate(input.location.longitude) }
+        : { ...input.location };
   }
 
   async upsert(
@@ -62,11 +104,7 @@ export class SignalService {
 
     // The claimed local date must be plausible for the supplied timezone right now. One day of
     // tolerance absorbs client clock skew without letting a check-in be backdated.
-    const localToday = localDateOf(this.now(), input.timezone);
-    const allowed = [addDays(localToday, -1), localToday, addDays(localToday, 1)];
-    if (!allowed.includes(input.localDate)) {
-      throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
-    }
+    this.validateCheckInTime(input);
 
     const existing = await this.signals.get(uid, sessionId);
 
@@ -76,16 +114,7 @@ export class SignalService {
       return { signal: null, deleted: true };
     }
 
-    const location =
-      input.location === null
-        ? null
-        : input.location.precision === "approximate"
-          ? {
-              ...input.location,
-              latitude: roundApproximate(input.location.latitude),
-              longitude: roundApproximate(input.location.longitude),
-            }
-          : { ...input.location };
+    const location = this.prepareLocation(input);
 
     const signal = await this.signals.upsert(uid, sessionId, {
       moodScore: input.moodScore,
@@ -110,11 +139,52 @@ export class SignalService {
     await this.invalidate(uid, [existing?.localDate]);
   }
 
+  async createCheckIn(
+    uid: string,
+    sessionId: string,
+    input: CreateCheckInInput,
+  ): Promise<PersonalCheckIn> {
+    await this.requireOwnedSession(uid, sessionId);
+    const parsed: UpsertSignalInput = {
+      moodScore: input.moodScore,
+      energyScore: input.energyScore,
+      emotions: input.emotions,
+      note: input.note,
+      location: input.location,
+      localDate: input.localDate,
+      timezone: input.timezone,
+    };
+    if (isEmpty(parsed)) throw new AppError(400, "INVALID_REQUEST", "The request is invalid.");
+    this.validateCheckInTime(parsed);
+    const checkIn = await this.signals.createCheckIn(uid, sessionId, {
+      ...parsed,
+      location: this.prepareLocation(parsed),
+      createdBy: uid,
+      scopeId: uid,
+    }, null);
+    await this.invalidate(uid, [checkIn.localDate]);
+    return checkIn;
+  }
+
+  async listCheckIns(uid: string, sessionId: string): Promise<PersonalCheckIn[]> {
+    await this.requireOwnedSession(uid, sessionId);
+    return this.signals.listCheckIns(uid, sessionId, 50);
+  }
+
+  async removeCheckIn(uid: string, sessionId: string, checkInId: string): Promise<void> {
+    await this.requireOwnedSession(uid, sessionId);
+    const target = (await this.signals.listCheckIns(uid, sessionId, 50)).find((item) => item.id === checkInId);
+    if (!target) throw notFound();
+    await this.signals.deleteCheckIn(uid, checkInId);
+    await this.invalidate(uid, [target.localDate]);
+  }
+
   // Used by the session-deletion cascade before the session document is removed; ownership was
   // already established by the deletion flow itself.
   async removeForDeletedSession(uid: string, sessionId: string): Promise<void> {
     const existing = await this.signals.get(uid, sessionId);
     await this.signals.delete(uid, sessionId);
+    await this.signals.deleteCheckInsForSession(uid, sessionId);
     await this.invalidate(uid, [existing?.localDate]);
   }
 
@@ -141,10 +211,17 @@ export class SignalService {
         signal.location !== null,
     );
 
+    // A session may now have many private check-ins. Places is a session-level view, so keep
+    // only the newest located check-in for each session rather than rendering duplicate pins.
+    const newestBySession = new Map<string, (typeof located)[number]>();
+    for (const signal of located) {
+      if (!newestBySession.has(signal.sourceSessionId)) newestBySession.set(signal.sourceSessionId, signal);
+    }
+
     const points: MapPoint[] = [];
-    for (const signal of located.slice(0, limit)) {
+    for (const signal of [...newestBySession.values()].slice(0, limit)) {
       const session = await this.journal.getSession(uid, signal.sourceSessionId);
-      if (!session) continue;
+      if (!session || session.status !== "active") continue;
       points.push({
         sessionId: signal.sourceSessionId,
         sessionTitle: session.title,

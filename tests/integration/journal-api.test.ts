@@ -77,6 +77,114 @@ describe("journal API security boundary", () => {
     expect(sessionsResponseSchema.parse(responseBody(bravoList)).sessions).toHaveLength(0);
   });
 
+  it("does not copy the first message into a title when AI metadata is unavailable", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({})
+      .expect(201);
+    const sessionId = responseSessionId(created);
+
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/messages`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ requestId: randomUUID(), content: "Plan the launch. Then review the risks." })
+      .expect(201);
+
+    await expect(repository.getSession("user_alpha", sessionId)).resolves.toMatchObject({
+      title: "New personal reflection",
+      messageCount: 2,
+    });
+  });
+
+  it("preserves an explicitly named reflection", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ title: "Launch plan" })
+      .expect(201);
+    const sessionId = responseSessionId(created);
+
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/messages`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ requestId: randomUUID(), content: "A different first thought." })
+      .expect(201);
+
+    await expect(repository.getSession("user_alpha", sessionId)).resolves.toMatchObject({
+      title: "Launch plan",
+    });
+  });
+
+  it("allows the owner to rename an active reflection without crossing the ownership boundary", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({})
+      .expect(201);
+    const sessionId = responseSessionId(created);
+
+    await request(app)
+      .patch(`/api/v1/sessions/${sessionId}`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ title: "Launch notes" })
+      .expect(200);
+
+    await expect(repository.getSession("user_alpha", sessionId)).resolves.toMatchObject({
+      title: "Launch notes",
+    });
+    await request(app)
+      .patch(`/api/v1/sessions/${sessionId}`)
+      .set("authorization", "Bearer token-user_bravo")
+      .send({ title: "Not yours" })
+      .expect(404);
+  });
+
+  it("allows the owner to manage normalized reflection tags", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ title: "Launch notes" })
+      .expect(201);
+    const sessionId = responseSessionId(created);
+
+    await request(app)
+      .patch(`/api/v1/sessions/${sessionId}/tags`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ tags: ["Work", "Project planning"] })
+      .expect(200);
+
+    await expect(repository.getSession("user_alpha", sessionId)).resolves.toMatchObject({
+      tags: ["work", "project planning"],
+    });
+    const tags = await request(app)
+      .get("/api/v1/tags")
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200);
+    expect(JSON.parse(tags.text)).toEqual({ tags: ["project planning", "work"] });
+
+    await request(app)
+      .patch(`/api/v1/sessions/${sessionId}/tags`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ tags: ["WORK", "Project Planning", "Family"] })
+      .expect(200);
+    const deduped = await request(app)
+      .get("/api/v1/tags")
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200);
+    expect(JSON.parse(deduped.text)).toEqual({ tags: ["family", "project planning", "work"] });
+    const otherUsersTags = await request(app)
+      .get("/api/v1/tags")
+      .set("authorization", "Bearer token-user_bravo")
+      .expect(200);
+    expect(JSON.parse(otherUsersTags.text)).toEqual({ tags: [] });
+    await request(app)
+      .patch(`/api/v1/sessions/${sessionId}/tags`)
+      .set("authorization", "Bearer token-user_bravo")
+      .send({ tags: ["private"] })
+      .expect(404);
+  });
+
   it("blocks writing, summarizing, and deleting another user's session behind the same 404", async () => {
     const created = await request(app)
       .post("/api/v1/sessions")
@@ -221,6 +329,9 @@ describe("journal API security boundary", () => {
         .post(`/api/v1/sessions/${sessionId}/summarize`)
         .set("authorization", "Bearer token-user_alpha")
         .expect(409);
+      // Stay below the independent ten-per-second burst guard so this test reaches the
+      // model-route minute budget it is intended to verify.
+      if (attempt === 8) await new Promise((resolve) => setTimeout(resolve, 1_050));
     }
     const limited = await request(app)
       .post(`/api/v1/sessions/${sessionId}/summarize`)
@@ -232,6 +343,21 @@ describe("journal API security boundary", () => {
       .get("/api/v1/sessions")
       .set("authorization", "Bearer token-user_alpha")
       .expect(200);
+  });
+
+  it("allows a normal page-load burst and rejects more than ten requests per second", async () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await request(app)
+        .get("/api/v1/sessions")
+        .set("authorization", "Bearer token-user_alpha")
+        .expect(200);
+    }
+
+    const limited = await request(app)
+      .get("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(429);
+    expect(errorResponseSchema.parse(responseBody(limited)).error.code).toBe("RATE_LIMITED");
   });
 
   it("deletes the source session and its derived summary", async () => {
@@ -263,5 +389,61 @@ describe("journal API security boundary", () => {
     expect(await repository.getSession("user_alpha", sessionId)).toBeNull();
     expect(await repository.getSummary("user_alpha", sessionId)).toBeNull();
     expect(verifier.checks).toContain(true);
+  });
+
+  it("archives a reflection out of active memory and supports restore or permanent deletion", async () => {
+    const created = await request(app)
+      .post("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ title: "Archive me" })
+      .expect(201);
+    const sessionId = responseSessionId(created);
+
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/archive`)
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200)
+      .expect((response) => {
+        expect(responseBody(response)).toMatchObject({ session: { id: sessionId, status: "archived" } });
+      });
+
+    const active = await request(app)
+      .get("/api/v1/sessions")
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200);
+    expect(sessionsResponseSchema.parse(responseBody(active)).sessions).toHaveLength(0);
+
+    const archived = await request(app)
+      .get("/api/v1/sessions?status=archived")
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200);
+    expect(sessionsResponseSchema.parse(responseBody(archived)).sessions).toMatchObject([
+      { id: sessionId, status: "archived" },
+    ]);
+
+    const blocked = await request(app)
+      .post(`/api/v1/sessions/${sessionId}/messages`)
+      .set("authorization", "Bearer token-user_alpha")
+      .send({ requestId: randomUUID(), content: "Should stay out of the archive." })
+      .expect(409);
+    expect(responseBody(blocked)).toMatchObject({ error: { code: "SESSION_ARCHIVED" } });
+
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/restore`)
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200)
+      .expect((response) => {
+        expect(responseBody(response)).toMatchObject({ session: { id: sessionId, status: "active" } });
+      });
+
+    await request(app)
+      .post(`/api/v1/sessions/${sessionId}/archive`)
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(200);
+    await request(app)
+      .delete(`/api/v1/sessions/${sessionId}`)
+      .set("authorization", "Bearer token-user_alpha")
+      .expect(204);
+    expect(await repository.getSession("user_alpha", sessionId)).toBeNull();
   });
 });

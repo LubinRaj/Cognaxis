@@ -73,6 +73,7 @@ export function InlineAlert({
           label="Dismiss message"
           size={18}
           onClick={onDismiss}
+          iconClassName="text-current"
           className="-my-1.5 -mr-1.5 h-9 w-9 text-current hover:bg-black/5 dark:hover:bg-white/10"
         />
       )}

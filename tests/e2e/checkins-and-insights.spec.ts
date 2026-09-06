@@ -1,18 +1,18 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures/test";
 import { createVerifiedUser } from "./support/accounts";
-import { sendMessage, signIn, startReflection } from "./support/ui";
+import { expectAssistantReply, sendMessage, signIn, startReflection } from "./support/ui";
 
 async function openCheckInDialog(page: Page): Promise<void> {
   await page
     .getByRole("button", { name: /Add reflection check-in|Edit reflection check-in/ })
     .click();
-  await expect(page.getByRole("heading", { name: "Reflection check-in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Private check-in" })).toBeVisible();
 }
 
 async function saveCheckIn(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Save check-in" }).click();
-  await expect(page.getByRole("heading", { name: "Reflection check-in" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Private check-in" })).not.toBeVisible();
 }
 
 test.describe("check-ins", () => {
@@ -54,8 +54,8 @@ test.describe("check-ins", () => {
 
     // Remove it.
     await savedRow.getByRole("button", { name: "Edit" }).click();
-    await page.getByRole("button", { name: "Remove check-in" }).click();
-    await expect(page.getByRole("heading", { name: "Reflection check-in" })).not.toBeVisible();
+      await page.getByRole("button", { name: "Remove latest check-in" }).click();
+    await expect(page.getByRole("heading", { name: "Private check-in" })).not.toBeVisible();
     await expect(savedRow).toHaveCount(0);
   });
 
@@ -68,8 +68,8 @@ test.describe("check-ins", () => {
       await startReflection(page);
 
       let failNextSave = true;
-      await page.route("**/api/v1/sessions/*/signals", async (route) => {
-        if (failNextSave && route.request().method() === "PUT") {
+      await page.route("**/api/v1/sessions/*/check-ins", async (route) => {
+        if (failNextSave && route.request().method() === "POST") {
           failNextSave = false;
           await route.fulfill({
             status: 500,
@@ -92,7 +92,7 @@ test.describe("check-ins", () => {
       await expect(
         page.getByRole("alert").filter({ hasText: /could not be (saved|completed)/ }),
       ).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Reflection check-in" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Private check-in" })).toBeVisible();
       await expect(
         page.getByRole("radiogroup", { name: "Mood" }).getByRole("radio", { name: "Low", exact: true }),
       ).toBeChecked();
@@ -181,7 +181,7 @@ test.describe("insights dashboard and recaps", () => {
       .first()
       .click();
     await sendMessage(page, "A new thought that outdates the recap.");
-    await expect(page.getByRole("article")).toHaveCount(4);
+    await expectAssistantReply(page, "Test reflection response 2");
 
     await page.goto("/app/insights");
     const staleRecap = page.getByRole("article", { name: /Daily recap: A steady period/ });

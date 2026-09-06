@@ -150,7 +150,9 @@ describe("platform admin API", () => {
       .expect(429);
     expect(JSON.parse(limited.text)).toMatchObject({ error: { code: "RATE_LIMITED" } });
 
-    // Reads are governed separately and continue to work.
+    // Let the global ten-per-second burst window clear. Reads are governed separately from the
+    // stricter admin-mutation budget and continue to work after that short safety window.
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
     await request(context.app)
       .get("/api/v1/admin/overview")
       .set("authorization", auth("user_root"))

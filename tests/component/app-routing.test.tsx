@@ -54,7 +54,7 @@ describe("application routing", () => {
     await renderApp("/app/journal");
     await signalNoUser();
 
-    expect(await screen.findByText(/Think freely/)).toBeInTheDocument();
+    expect(await screen.findByText(/Think clearly/)).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
 
     await signalUser(verifiedAccount());
@@ -88,7 +88,7 @@ describe("application routing", () => {
     await renderApp("/does-not-exist");
     await signalNoUser();
 
-    expect(await screen.findByText(/Think freely/)).toBeInTheDocument();
+    expect(await screen.findByText(/Think clearly/)).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });
 
@@ -100,10 +100,51 @@ describe("application routing", () => {
     await waitFor(() => {
       expect(screen.getAllByRole("link", { name: "Insights" }).length).toBeGreaterThan(0);
     });
-    expect(screen.getAllByRole("link", { name: "Journal" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Map" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Organizations" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Home" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Places" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Teams" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+  });
+
+  it("keeps account controls in the permanent navigation on non-journal pages", async () => {
+    const account = verifiedAccount();
+    await renderApp("/app/insights");
+    await signalUser(account);
+
+    await screen.findByRole("heading", { name: /^Insights$/ });
+    expect(screen.getAllByRole("button", { name: /alpha@example\.test/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("navigation", { name: "Reflection history" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Home personal even when a recent team is remembered", async () => {
+    window.sessionStorage.setItem("cognaxis.workspace-scope.user_alpha", "org_older");
+    api.organizations = [
+      {
+        orgId: "org_older",
+        organizationName: "Older team",
+        role: "member",
+        status: "active",
+        joinedAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-20T00:00:00.000Z",
+      },
+      {
+        orgId: "org_recent",
+        organizationName: "Recent team",
+        role: "member",
+        status: "active",
+        joinedAt: "2026-08-02T00:00:00.000Z",
+        updatedAt: "2026-09-05T00:00:00.000Z",
+      },
+    ];
+
+    await renderApp("/app/journal");
+    await signalUser(verifiedAccount());
+
+    await waitForJournal();
+    expect(window.location.pathname).toBe("/app/journal");
+    expect(screen.getAllByLabelText("Reflection space")[0]).toHaveValue("personal");
+    expect(window.sessionStorage.getItem("cognaxis.workspace-scope.user_alpha")).toBe("org_older");
+    window.sessionStorage.removeItem("cognaxis.workspace-scope.user_alpha");
   });
 
   it("shows the admin destination only to a platform administrator", async () => {
@@ -167,9 +208,9 @@ describe("application routing", () => {
     await signalUser(verifiedAccount());
     await waitForJournal();
 
-    expect(screen.getAllByRole("link", { name: "Journal" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Home" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: "Insights" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Map" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Organizations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Places" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Teams" })).not.toBeInTheDocument();
   });
 });

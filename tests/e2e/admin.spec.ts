@@ -20,7 +20,7 @@ test.describe("super admin", () => {
     await signIn(page, account);
 
     const nav = page.getByRole("navigation", { name: "Cognaxis sections" }).first();
-    await expect(nav.getByRole("link", { name: "Journal" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Home" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Admin" })).toHaveCount(0);
 
     await page.goto("/app/admin");
@@ -117,10 +117,10 @@ test.describe("super admin", () => {
     const ownerPage = await ownerContext.newPage();
     await signIn(ownerPage, owner);
     await ownerPage.goto("/app/organizations");
-    await ownerPage.getByRole("button", { name: "New organization" }).first().click();
+    await ownerPage.getByRole("button", { name: "New team" }).first().click();
     const createDialog = ownerPage.getByRole("dialog");
     await createDialog.getByLabel("Name", { exact: true }).fill("Suspendable Org");
-    await createDialog.getByRole("button", { name: "Create organization" }).click();
+    await createDialog.getByRole("button", { name: "Create team" }).click();
     await expect(ownerPage.getByRole("heading", { name: "Suspendable Org" })).toBeVisible();
 
     await signIn(page, SUPER_ADMIN);

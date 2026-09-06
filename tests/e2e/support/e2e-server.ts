@@ -4,7 +4,9 @@ import { createApp } from "../../../src/server/app.js";
 import { FirebaseTokenVerifier } from "../../../src/server/auth/firebase-token-verifier.js";
 import { loadConfig } from "../../../src/server/config/env.js";
 import { InMemoryInsightRepository } from "../../../src/server/data/in-memory-insight-repository.js";
+import { InMemoryAttachmentRepository } from "../../../src/server/data/in-memory-attachment-repository.js";
 import { InMemoryJournalRepository } from "../../../src/server/data/in-memory-journal-repository.js";
+import { InMemoryMemoryIndexRepository } from "../../../src/server/data/in-memory-memory-index-repository.js";
 import { InMemoryOrganizationRepository } from "../../../src/server/data/in-memory-organization-repository.js";
 import { InMemoryOrganizationWorkspaceRepository } from "../../../src/server/data/in-memory-organization-workspace-repository.js";
 import { InMemoryPlatformUserRepository } from "../../../src/server/data/in-memory-platform-user-repository.js";
@@ -17,9 +19,11 @@ import {
   InsightService,
 } from "../../../src/server/services/insight-service.js";
 import { JournalService } from "../../../src/server/services/journal-service.js";
+import { MemoryIndexService } from "../../../src/server/services/memory-index-service.js";
 import { OrganizationService } from "../../../src/server/services/organization-service.js";
 import { PlatformAdminService } from "../../../src/server/services/platform-admin-service.js";
 import { PlatformUserService } from "../../../src/server/services/platform-user-service.js";
+import type { ProfilePhotoProvider } from "../../../src/server/services/profile-photo-service.js";
 import { SignalService } from "../../../src/server/services/signal-service.js";
 import { UsageRecorder } from "../../../src/server/services/usage-recorder.js";
 import { startServer } from "../../../src/server/start.js";
@@ -59,6 +63,7 @@ const config = loadConfig({
   PORT: String(E2E_SERVER_PORT),
   APP_ORIGIN: E2E_BASE_URL,
   GOOGLE_CLOUD_PROJECT: E2E_PROJECT_ID,
+  FIREBASE_STORAGE_BUCKET: "e2e-project.firebasestorage.app",
   GEMINI_MODEL: "e2e-deterministic-model",
   GEMINI_API_KEY: "e2e-synthetic-model-key",
   FIREBASE_AUTH_DOMAIN: `${E2E_PROJECT_ID}.firebaseapp.com`,
@@ -75,6 +80,8 @@ const preferences = new InMemoryPreferencesRepository();
 const insights = new InMemoryInsightRepository();
 const usage = new InMemoryUsageRepository();
 const usageRecorder = new UsageRecorder(usage);
+const attachments = new InMemoryAttachmentRepository();
+const memoryIndex = new MemoryIndexService(new InMemoryMemoryIndexRepository(), model);
 
 const invalidation = new InsightInvalidationService(insights, preferences);
 const signalService = new SignalService(signals, repository, undefined, invalidation);
@@ -97,6 +104,8 @@ const journalService = new JournalService(
   ],
   [(uid, sessionCreatedAt) => invalidation.onContentChanged(uid, sessionCreatedAt)],
   usageRecorder,
+  attachments,
+  memoryIndex,
 );
 const dashboardService = new DashboardService(signals, repository, preferences);
 const organizations = new InMemoryOrganizationRepository();
@@ -109,8 +118,26 @@ const organizationService = new OrganizationService(
   model,
   undefined,
   usageRecorder,
+  attachments,
+  memoryIndex,
 );
 const platformAdminService = new PlatformAdminService(platformUsers, organizations, usage);
+
+class InMemoryProfilePhotoService implements ProfilePhotoProvider {
+  private readonly photos = new Map<string, { bytes: Buffer; mimeType: string }>();
+
+  async get(uid: string): Promise<{ bytes: Buffer; mimeType: string } | null> {
+    return this.photos.get(uid) ?? null;
+  }
+
+  async upload(uid: string, mimeType: string, bytes: Buffer): Promise<void> {
+    this.photos.set(uid, { bytes: Buffer.from(bytes), mimeType });
+  }
+
+  async remove(uid: string): Promise<void> {
+    this.photos.delete(uid);
+  }
+}
 
 async function waitForAuthEmulator(): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -152,6 +179,7 @@ const app = await createApp({
   verifier,
   journalService,
   platformUserService: new PlatformUserService(platformUsers),
+  profilePhotoService: new InMemoryProfilePhotoService(),
   signalService,
   dashboardService,
   insightService,

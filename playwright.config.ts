@@ -34,7 +34,16 @@ export default defineConfig({
     {
       name: "functional",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: ["**/production-smoke.spec.ts"],
+      testIgnore: ["**/production-smoke.spec.ts", "**/mobile-layout.spec.ts"],
+    },
+    {
+      // A focused phone suite protects the compact navigation and shared responsive layout without
+      // duplicating the complete desktop functional suite. It intentionally uses a desktop
+      // Chromium context at a phone-sized viewport: Firebase's browser emulator mode has a
+      // separate mobile-auth implementation that is not part of a visual layout assertion.
+      name: "mobile",
+      use: { ...devices["Desktop Chrome"], viewport: devices["Pixel 7"].viewport },
+      testMatch: "**/mobile-layout.spec.ts",
     },
     {
       name: "production-smoke",

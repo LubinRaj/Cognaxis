@@ -149,9 +149,9 @@ export function OrgInvitesTab({ api, orgId, permissions }: Props) {
             onChange={(event) => setRole(event.target.value as "admin" | "member" | "viewer")}
             className="border-outline-variant bg-surface text-on-surface focus-visible:outline-focus-ring min-h-10 rounded-field border px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            <option value="member">Member — can write and reflect</option>
-            <option value="viewer">Viewer — can read only</option>
-            {permissions.canInviteAdmin && <option value="admin">Admin — can manage members</option>}
+            <option value="member">Member - can write and reflect</option>
+            <option value="viewer">Viewer - can read only</option>
+            {permissions.canInviteAdmin && <option value="admin">Admin - can manage members</option>}
           </select>
           <Button
             size="compact"
@@ -167,7 +167,7 @@ export function OrgInvitesTab({ api, orgId, permissions }: Props) {
         {createdLink && (
           <div className="border-outline-variant bg-surface mt-3 rounded-field border p-3">
             <p className="text-on-surface-variant text-xs font-medium">
-              Copy this link now — for safety it will not be shown again.
+              Copy this link now - for safety it will not be shown again.
             </p>
             <p className="text-on-surface mt-1 text-xs break-all" data-testid="invite-link">
               {createdLink}

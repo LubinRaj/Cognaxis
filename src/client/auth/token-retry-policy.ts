@@ -22,7 +22,10 @@ export function shouldForceTokenRefresh(input: TokenRefreshDecisionInput): boole
 
 export function isSessionTerminatingResponse(failure: ApiFailure): boolean {
   if (failure.status !== 401) return false;
-  if (failure.errorCode === "RECENT_AUTH_REQUIRED") return true;
+  // A recent-authentication challenge protects a sensitive operation; it does not mean the
+  // Firebase session is invalid. Keep the signed-in workspace intact and let the operation show
+  // the challenge to the user. Only a genuinely invalid token after one refresh ends a session.
+  if (failure.errorCode === "RECENT_AUTH_REQUIRED") return false;
   return (
     failure.errorCode === "UNAUTHENTICATED" &&
     failure.completedRefreshes >= MAX_TOKEN_REFRESH_ATTEMPTS

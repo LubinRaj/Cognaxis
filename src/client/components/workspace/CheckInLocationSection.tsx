@@ -1,5 +1,5 @@
 import { lazy, Suspense, useId, useState } from "react";
-import type { PersonalSignalLocation } from "../../../shared/schemas";
+import type { PersonalSignalLocation, Preferences } from "../../../shared/schemas";
 import { mapsConfigured } from "../../lib/maps-loader";
 import { Button } from "../ui/Button";
 import { InlineAlert } from "../ui/InlineAlert";
@@ -13,12 +13,14 @@ type GeolocationStatus = "idle" | "requesting" | "denied" | "unavailable";
 export type CheckInLocationSectionProps = {
   location: PersonalSignalLocation | null;
   disabled: boolean;
+  locationMode?: Preferences["locationMode"];
   onChange: (location: PersonalSignalLocation | null) => void;
 };
 
 export function CheckInLocationSection({
   location,
   disabled,
+  locationMode = "off",
   onChange,
 }: CheckInLocationSectionProps) {
   const [status, setStatus] = useState<GeolocationStatus>("idle");
@@ -39,7 +41,7 @@ export function CheckInLocationSection({
           label: location?.label ?? "",
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          precision: location?.precision ?? "approximate",
+          precision: location?.precision ?? (locationMode === "exact" ? "exact" : "approximate"),
         });
       },
       (error) => {
@@ -144,7 +146,7 @@ export function CheckInLocationSection({
                   checked={location.precision === "approximate"}
                   onChange={() => onChange({ ...location, precision: "approximate" })}
                 />
-                Approximate — rounded to about a kilometre (recommended)
+                Approximate - rounded to about a kilometre (recommended)
               </label>
               <label className="text-on-surface flex items-center gap-2 text-sm">
                 <input
@@ -153,7 +155,7 @@ export function CheckInLocationSection({
                   checked={location.precision === "exact"}
                   onChange={() => onChange({ ...location, precision: "exact" })}
                 />
-                Exact — the precise coordinates shown above
+                Exact - the precise coordinates shown above
               </label>
             </div>
           </fieldset>

@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import type { User } from "firebase/auth";
 import { periodKeyFor, type PeriodType } from "../../shared/periods";
-import type { DashboardRangeDays, PersonalInsight } from "../../shared/schemas";
+import type {
+  DashboardRangeDays,
+  PersonalInsight,
+  ReflectionStreak,
+} from "../../shared/schemas";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiClient, ApiError, type DashboardView } from "../lib/api-client";
 import { browserTimeZone, EMOTION_DISPLAY } from "../workspace/check-in";
 import { InsightCard } from "../components/insights/InsightCard";
+import { MaterialIcon } from "../components/MaterialIcon";
 import { AccessibleLineChart } from "../components/ui/AccessibleLineChart";
 import { Button } from "../components/ui/Button";
 import { Chip } from "../components/ui/Chip";
@@ -44,11 +49,120 @@ function MetricCard({
   detail?: string | null;
 }) {
   return (
-    <div className="border-outline-variant bg-surface-container-low rounded-card border p-4">
+    <div className="border-outline-variant bg-surface-container-low rounded-field border p-3">
       <p className="text-on-surface-variant text-xs font-medium">{label}</p>
-      <p className="text-on-surface mt-1 text-2xl font-semibold">{value}</p>
+      <p className="text-on-surface mt-1 text-xl font-semibold">{value}</p>
       {detail && <p className="text-on-surface-variant mt-1 text-xs">{detail}</p>}
     </div>
+  );
+}
+
+function formatStreakAmount(value: number, unit: ReflectionStreak["unit"]): string {
+  const label = value === 1 ? unit : `${unit}s`;
+  return `${value} ${label}`;
+}
+
+function formatStreakPeriod(
+  period: ReflectionStreak["periods"][number],
+  unit: ReflectionStreak["unit"],
+): string {
+  const format = (date: string) =>
+    new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  if (unit === "day") return format(period.start);
+  if (unit === "week") return `${format(period.start)} - ${format(period.end)}`;
+  return new Date(`${period.start}T12:00:00Z`).toLocaleDateString(undefined, {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function ReflectionStreakCard({ streak }: { streak: ReflectionStreak }) {
+  const unitTitle =
+    streak.unit === "day" ? "Daily" : streak.unit === "week" ? "Weekly" : "Monthly";
+  const currentMessage =
+    streak.current > 0
+      ? `${formatStreakAmount(streak.current, streak.unit)} in a row.`
+      : `Reflect this ${streak.unit} to begin a streak.`;
+  const periodLabel = streak.unit === "day" ? "days" : streak.unit === "week" ? "weeks" : "months";
+
+  return (
+    <section
+      className="border-outline-variant bg-surface-container-low mt-4 rounded-field border p-3 sm:p-4"
+      aria-labelledby="reflection-streak-heading"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-950/60 dark:text-orange-300"
+            aria-hidden="true"
+          >
+            <MaterialIcon name="local_fire_department" size={22} />
+          </span>
+          <div className="min-w-0">
+            <h2 id="reflection-streak-heading" className="text-on-surface text-sm font-medium">
+              {unitTitle} streak
+            </h2>
+            <p className="text-on-surface-variant mt-0.5 text-xs">{currentMessage}</p>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <p className="text-on-surface-variant text-[11px] font-medium">Current</p>
+          <p className="text-on-surface text-lg font-semibold leading-tight">{streak.current}</p>
+          <p className="text-on-surface-variant text-[11px]">{streak.current === 1 ? streak.unit : periodLabel}</p>
+        </div>
+      </div>
+
+      <dl className="border-outline-variant mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t pt-3 text-xs">
+        <div className="flex items-baseline gap-1.5">
+          <dt className="text-on-surface-variant">Longest</dt>
+          <dd className="text-on-surface font-medium">{formatStreakAmount(streak.longest, streak.unit)}</dd>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <dt className="text-on-surface-variant">Active</dt>
+          <dd className="text-on-surface font-medium">{streak.activePeriods} of {streak.periods.length} {periodLabel}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-3" aria-label={`${unitTitle} reflection activity for the selected range`}>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-on-surface text-xs font-medium">Selected range</p>
+          <p className="text-on-surface-variant text-[11px]">One reflection keeps a {streak.unit} active.</p>
+        </div>
+        <div
+          className="mt-2 grid gap-1.5"
+          role="list"
+          style={{ gridTemplateColumns: `repeat(${streak.periods.length}, minmax(0, 1fr))` }}
+        >
+          {streak.periods.map((period) => {
+            const active = period.reflectionCount > 0;
+            const label = formatStreakPeriod(period, streak.unit);
+            return (
+              <span
+                key={period.start}
+                role="listitem"
+                title={`${label}: ${period.reflectionCount} ${period.reflectionCount === 1 ? "reflection" : "reflections"}`}
+                aria-label={`${label}: ${period.reflectionCount > 0 ? `${period.reflectionCount} ${period.reflectionCount === 1 ? "reflection" : "reflections"}` : "no reflections"}${period.isCurrent ? `, current ${streak.unit}` : ""}`}
+                className={`h-7 rounded-md border motion-safe:transition-colors ${
+                  active
+                    ? "border-orange-500 bg-orange-400 dark:border-orange-300 dark:bg-orange-500"
+                    : "border-outline-variant bg-surface-container"
+                } ${period.isCurrent ? "ring-focus-ring ring-1 ring-offset-1 ring-offset-[var(--sys-surface-container-low)]" : ""}`}
+              />
+            );
+          })}
+        </div>
+        <div className="text-on-surface-variant mt-1.5 flex justify-between text-[10px]">
+          <span>{streak.periods[0] ? formatStreakPeriod(streak.periods[0], streak.unit) : ""}</span>
+          <span>{streak.periods.at(-1) ? formatStreakPeriod(streak.periods.at(-1)!, streak.unit) : ""}</span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -75,7 +189,6 @@ export function InsightsPage() {
   const [generationPending, setGenerationPending] = useState<PeriodType | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const requestRef = useRef(0);
-  const initializedRef = useRef(false);
 
   const dashboard = view?.dashboard ?? null;
 
@@ -163,8 +276,6 @@ export function InsightsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (initializedRef.current) return;
-    initializedRef.current = true;
     api
       .getPreferences()
       .then((preferences) => {
@@ -244,7 +355,7 @@ export function InsightsPage() {
                   aria-pressed={selected}
                   disabled={status === "loading" || status === "refreshing"}
                   onClick={() => selectRange(range)}
-                  className={`focus-visible:outline-focus-ring min-h-10 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 motion-safe:transition-colors motion-safe:duration-feedback ${
+                  className={`focus-visible:outline-focus-ring min-h-10 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 motion-safe:transition-colors motion-safe:duration-feedback sm:px-4 ${
                     selected
                       ? "bg-secondary-container text-on-secondary-container"
                       : "text-on-surface-variant hover:bg-surface-container-high"
@@ -337,7 +448,7 @@ export function InsightsPage() {
               />
               <MetricCard
                 label="Average mood"
-                value={dashboard.moodAverage !== null ? dashboard.moodAverage.toFixed(1) : "—"}
+                value={dashboard.moodAverage !== null ? dashboard.moodAverage.toFixed(1) : "-"}
                 detail={
                   dashboard.moodAverage === null
                     ? "No mood check-ins yet"
@@ -347,7 +458,7 @@ export function InsightsPage() {
               <MetricCard
                 label="Average energy"
                 value={
-                  dashboard.energyAverage !== null ? dashboard.energyAverage.toFixed(1) : "—"
+                  dashboard.energyAverage !== null ? dashboard.energyAverage.toFixed(1) : "-"
                 }
                 detail={
                   dashboard.energyAverage === null
@@ -356,6 +467,8 @@ export function InsightsPage() {
                 }
               />
             </div>
+
+            <ReflectionStreakCard streak={dashboard.reflectionStreak} />
 
             <section className="border-outline-variant bg-surface-container-low mt-6 rounded-card border p-4 sm:p-5">
               <h2 className="text-on-surface text-base font-medium">Mood and energy</h2>

@@ -6,7 +6,12 @@ import {
   type Firestore,
   type Timestamp,
 } from "firebase-admin/firestore";
-import type { EmotionLabel, PersonalSignal, PersonalSignalLocation } from "../../shared/schemas.js";
+import type {
+  EmotionLabel,
+  PersonalCheckIn,
+  PersonalSignal,
+  PersonalSignalLocation,
+} from "../../shared/schemas.js";
 import type { SignalRepository, SignalWrite } from "./signal-repository.js";
 
 type StoredSignal = {
@@ -24,6 +29,11 @@ type StoredSignal = {
   scopeType: "personal";
   scopeId: string;
   schemaVersion: 1;
+};
+
+type StoredCheckIn = Omit<StoredSignal, "schemaVersion"> & {
+  anchorMessageId: string | null;
+  schemaVersion: 2;
 };
 
 function toIso(value: Timestamp | undefined): string {
@@ -50,6 +60,27 @@ function mapSignal(snapshot: DocumentSnapshot): PersonalSignal {
   };
 }
 
+function mapCheckIn(snapshot: DocumentSnapshot): PersonalCheckIn {
+  const signal = mapSignal(snapshot);
+  const stored = snapshot.data() as StoredCheckIn;
+  return {
+    ...signal,
+    id: snapshot.id,
+    anchorMessageId: stored.anchorMessageId ?? null,
+    schemaVersion: 2,
+  };
+}
+
+function asSignal(checkIn: PersonalCheckIn): PersonalSignal {
+  const signal = { ...checkIn, schemaVersion: 1 } as PersonalSignal & {
+    id?: string;
+    anchorMessageId?: string | null;
+  };
+  delete signal.id;
+  delete signal.anchorMessageId;
+  return signal;
+}
+
 // Every path is rooted at the verified owner's document, so no query can cross user boundaries.
 export class FirestoreSignalRepository implements SignalRepository {
   constructor(private readonly firestore: Firestore = getFirestore()) {}
@@ -60,6 +91,10 @@ export class FirestoreSignalRepository implements SignalRepository {
       .doc(uid)
       .collection("personalSignals")
       .doc(sessionId);
+  }
+
+  private checkIns(uid: string) {
+    return this.firestore.collection("users").doc(uid).collection("personalCheckIns");
   }
 
   async get(uid: string, sessionId: string): Promise<PersonalSignal | null> {
@@ -104,13 +139,78 @@ export class FirestoreSignalRepository implements SignalRepository {
     return true;
   }
 
+  async createCheckIn(
+    uid: string,
+    sessionId: string,
+    write: SignalWrite,
+    anchorMessageId: string | null,
+  ): Promise<PersonalCheckIn> {
+    const reference = this.checkIns(uid).doc();
+    await reference.create({
+      sourceSessionId: sessionId,
+      moodScore: write.moodScore,
+      energyScore: write.energyScore,
+      emotions: write.emotions,
+      note: write.note,
+      location: write.location,
+      localDate: write.localDate,
+      timezone: write.timezone,
+      capturedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      createdBy: write.createdBy,
+      scopeType: "personal",
+      scopeId: write.scopeId,
+      anchorMessageId,
+      schemaVersion: 2,
+    });
+    return mapCheckIn(await reference.get());
+  }
+
+  async listCheckIns(uid: string, sessionId: string, limit: number): Promise<PersonalCheckIn[]> {
+    const base = this.checkIns(uid).where("sourceSessionId", "==", sessionId);
+    try {
+      const snapshot = await base.orderBy("capturedAt", "desc").limit(limit).get();
+      return snapshot.docs.map(mapCheckIn);
+    } catch (error) {
+      // A newly provisioned project may not have received firestore.indexes.json yet. The
+      // equality-only query uses Firestore's automatic single-field index, so the feature stays
+      // usable while the composite index deployment catches up; ordering remains deterministic.
+      if (!(error instanceof Error && error.message.includes("requires an index"))) throw error;
+      const snapshot = await base.limit(limit).get();
+      return snapshot.docs
+        .map(mapCheckIn)
+        .sort((left, right) => right.capturedAt.localeCompare(left.capturedAt));
+    }
+  }
+
+  async deleteCheckIn(uid: string, checkInId: string): Promise<boolean> {
+    const reference = this.checkIns(uid).doc(checkInId);
+    const snapshot = await reference.get();
+    if (!snapshot.exists) return false;
+    await reference.delete();
+    return true;
+  }
+
+  async deleteCheckInsForSession(uid: string, sessionId: string): Promise<void> {
+    // Keep batches below Firestore's write limit and continue until the whole private session
+    // history is removed. This is part of the deletion cascade, so partial cleanup is not safe.
+    while (true) {
+      const snapshot = await this.checkIns(uid).where("sourceSessionId", "==", sessionId).limit(500).get();
+      if (snapshot.empty) return;
+      const batch = this.firestore.batch();
+      snapshot.docs.forEach((document) => batch.delete(document.ref));
+      await batch.commit();
+    }
+  }
+
   async listRange(
     uid: string,
     fromLocalDate: string,
     toLocalDate: string,
     limit: number,
   ): Promise<PersonalSignal[]> {
-    const snapshot = await this.firestore
+    const [legacy, checkIns] = await Promise.all([
+      this.firestore
       .collection("users")
       .doc(uid)
       .collection("personalSignals")
@@ -118,7 +218,19 @@ export class FirestoreSignalRepository implements SignalRepository {
       .where("localDate", "<=", toLocalDate)
       .orderBy("localDate", "desc")
       .limit(limit)
-      .get();
-    return snapshot.docs.map((document) => mapSignal(document));
+      .get(),
+      this.checkIns(uid)
+        .where("localDate", ">=", fromLocalDate)
+        .where("localDate", "<=", toLocalDate)
+        .orderBy("localDate", "desc")
+        .limit(limit)
+        .get(),
+    ]);
+    return [
+      ...legacy.docs.map(mapSignal),
+      ...checkIns.docs.map(mapCheckIn).map(asSignal),
+    ]
+      .sort((left, right) => right.localDate.localeCompare(left.localDate) || right.capturedAt.localeCompare(left.capturedAt))
+      .slice(0, limit);
   }
 }

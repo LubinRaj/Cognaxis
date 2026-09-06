@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JournalMessage } from "../../../shared/schemas";
 import { MaterialIcon } from "../MaterialIcon";
+import { FormattedMessage } from "../ui/FormattedMessage";
 import { IconButton } from "../ui/IconButton";
 
 const NEAR_BOTTOM_PX = 120;
@@ -15,9 +16,10 @@ type ConversationThreadProps = {
   messages: JournalMessage[];
   pending: boolean;
   onCopyResult: (message: string) => void;
+  loadAttachment?: (attachmentId: string) => Promise<Blob>;
 };
 
-export function ConversationThread({ messages, pending, onCopyResult }: ConversationThreadProps) {
+export function ConversationThread({ messages, pending, onCopyResult, loadAttachment }: ConversationThreadProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -48,7 +50,7 @@ export function ConversationThread({ messages, pending, onCopyResult }: Conversa
     >
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-6 px-4 py-6 sm:px-6">
         {messages.map((message) => (
-          <MessageRow key={message.id} message={message} onCopyResult={onCopyResult} />
+          <MessageRow key={message.id} message={message} onCopyResult={onCopyResult} loadAttachment={loadAttachment} />
         ))}
 
         {pending && !messages.some((m) => m.role === "model" && m.id.startsWith("pending-")) && (
@@ -74,9 +76,11 @@ export function ConversationThread({ messages, pending, onCopyResult }: Conversa
 function MessageRow({
   message,
   onCopyResult,
+  loadAttachment,
 }: {
   message: JournalMessage;
   onCopyResult: (message: string) => void;
+  loadAttachment?: (attachmentId: string) => Promise<Blob>;
 }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -97,7 +101,7 @@ function MessageRow({
 
   return (
     <article
-      className={`group flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}
+      className={`group flex flex-col gap-0.5 ${isUser ? "items-end" : "items-start"}`}
       aria-label={isUser ? "Your message" : "Message from Cognaxis"}
       data-testid={isPendingAssistant ? "response-pending" : undefined}
     >
@@ -121,13 +125,20 @@ function MessageRow({
         >
           {showTypingPlaceholder ? (
             <span className="text-on-surface-variant text-sm inline-flex items-center gap-2" role="status">
-              Cognaxis is responding…
+              Reflecting…
             </span>
           ) : (
-            message.content
+            isUser ? message.content : <FormattedMessage content={message.content} />
           )}
         </div>
       </div>
+
+      {isUser && message.attachmentIds && message.attachmentIds.length > 0 && loadAttachment && (
+        <PrivateMessageAttachments
+          attachmentIds={message.attachmentIds}
+          loadAttachment={loadAttachment}
+        />
+      )}
 
       <div
         className={`flex items-center gap-2 text-xs ${isUser ? "flex-row-reverse pr-1" : "pl-11"}`}
@@ -159,5 +170,70 @@ function MessageRow({
         )}
       </div>
     </article>
+  );
+}
+
+export function PrivateMessageAttachments({
+  attachmentIds,
+  loadAttachment,
+}: {
+  attachmentIds: string[];
+  loadAttachment: (attachmentId: string) => Promise<Blob>;
+}) {
+  const [loaded, setLoaded] = useState<Array<{ id: string; url: string; kind: "image" | "document" | "audio" }>>([]);
+  const [failed, setFailed] = useState(false);
+  const attachmentKey = attachmentIds.join(":");
+
+  useEffect(() => {
+    let active = true;
+    const urls: string[] = [];
+    const requestedIds = attachmentKey.split(":").filter(Boolean);
+    void Promise.allSettled(
+      requestedIds.map(async (id) => {
+        const blob = await loadAttachment(id);
+        const url = URL.createObjectURL(blob);
+        urls.push(url);
+        const kind = blob.type.startsWith("image/")
+          ? "image" as const
+          : blob.type.startsWith("audio/")
+            ? "audio" as const
+            : "document" as const;
+        return { id, url, kind };
+      }),
+    ).then((results) => {
+      if (!active) return;
+      const available = results
+        .filter((result): result is PromiseFulfilledResult<{ id: string; url: string; kind: "image" | "document" | "audio" }> => result.status === "fulfilled")
+        .map((result) => result.value);
+      setLoaded(available);
+      setFailed(available.length !== requestedIds.length);
+    });
+    return () => {
+      active = false;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [attachmentKey, loadAttachment]);
+
+  return (
+    <div className="flex max-w-[92%] flex-wrap justify-end gap-2" aria-label="Private message attachments">
+      {loaded.map((attachment) =>
+        attachment.kind === "image" ? (
+          <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" aria-label="Open attached image">
+            <img src={attachment.url} alt="Attached image" className="border-outline-variant h-24 w-24 rounded-card border object-cover" />
+          </a>
+        ) : attachment.kind === "audio" ? (
+          <audio key={attachment.id} controls preload="none" src={attachment.url} aria-label="Attached voice note" className="max-w-full" />
+        ) : (
+          <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" aria-label="Open attached document" className="border-outline-variant bg-surface-container-high text-on-surface inline-flex items-center gap-2 rounded-card border px-3 py-2 text-sm">
+            <MaterialIcon name="description" size={18} />
+            Open document
+          </a>
+        ),
+      )}
+      {loaded.length === 0 && !failed && (
+        <span className="text-on-surface-variant text-xs" role="status">Loading attachment…</span>
+      )}
+      {failed && <span className="text-error text-xs" role="status">An attachment could not be loaded.</span>}
+    </div>
   );
 }

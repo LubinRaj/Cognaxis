@@ -30,7 +30,7 @@
     "@firebase-oss/ui-react": "7.1.0",
     "@firebase-oss/ui-styles": "7.1.0",
     "@firebase-oss/ui-translations": "7.1.0",
-    "@google/genai": "^2.19.0",
+    "@google/genai": "^2.21.0",
     "@googlemaps/js-api-loader": "^2.1.1",
     "@tailwindcss/vite": "^4.3.3",
     "cors": "^2.8.6",

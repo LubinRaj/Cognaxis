@@ -4,7 +4,23 @@ set -euo pipefail
 failure=0
 
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  tracked_files="$(git ls-files)"
+  # Ignore tracked files that are already deleted in the working tree so a cleanup change can be
+  # verified before it is committed.
+  tracked_files="$(git ls-files | while IFS= read -r file; do
+    [[ -e "$file" ]] && printf '%s\n' "$file"
+  done)"
+
+  if printf '%s\n' "$tracked_files" | grep -E '(^|/)scripts/(seed|fixtures-production)/'; then
+    echo "ERROR: production or demo data seeders must not be tracked." >&2
+    failure=1
+  fi
+
+  lockfiles="$(printf '%s\n' "$tracked_files" | grep -E '(^|/)(package-lock\.json|bun\.lockb?|yarn\.lock|pnpm-lock\.yaml)$' || true)"
+  if [[ "$(printf '%s\n' "$lockfiles" | sed '/^$/d' | wc -l | tr -d ' ')" -gt 1 ]]; then
+    printf '%s\n' "$lockfiles"
+    echo "ERROR: multiple JavaScript package-manager lockfiles are tracked." >&2
+    failure=1
+  fi
 
   if printf '%s\n' "$tracked_files" | grep -E '(^|/)(\.env($|\.)|[^/]*(service[-_]?account|firebase-adminsdk)[^/]*\.json$|[^/]+\.(pem|p12|pfx|key)$)' | grep -Ev '(^|/)\.env\.example$'; then
     echo "ERROR: a tracked filename appears to contain secrets or private credentials." >&2

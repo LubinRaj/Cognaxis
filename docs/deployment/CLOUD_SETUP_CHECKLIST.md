@@ -1,192 +1,168 @@
-# Cognaxis Cloud Setup Checklist
+# Cloud Setup Checklist
 
-Status: Not provisioned
-Execution rule: Each state-changing Google Cloud or Firebase step requires project-owner approval before it is performed.
+This checklist covers external state that source code cannot create or prove. Replace every example with values from your own Firebase and Google Cloud project. Never paste secret values into documentation, screenshots, issues, or source.
 
-## 1. Decisions required first
+## Deployment ownership
 
-- Confirm the Firebase/Firestore region. Prefer the region nearest the expected demo users and keep Cloud Run in a compatible nearby region.
-- Confirm the final production origin and Cloud Run service name.
-- Confirm whether the Gemini Developer API key requirement will be met by a key stored in Secret Manager or whether the event accepts Agent Platform identity-based access. The current code implements the challenge's explicit Secret Manager key path.
+The maintained workflow is:
 
-## 2. Firebase
+1. Develop and verify locally.
+2. Push the reviewed commit to GitHub.
+3. Sync that commit into Google AI Studio.
+4. Verify the AI Studio Preview.
+5. Publish from AI Studio to Cloud Run.
+6. Verify the deployed revision and its external configuration.
 
-- Attach Firebase to the existing ideathon Google Cloud project.
-- Register a web application named `Cognaxis Web`.
-- Enable Google as an Authentication sign-in provider.
-- Enable Email/Password as an Authentication sign-in provider. Leave email-link (passwordless)
-  sign-in disabled; it is out of scope for this iteration.
-- Add only localhost and the final Cloud Run/custom domains to authorized domains.
-- Copy the Firebase web configuration identifiers into deployment environment variables; never add Admin SDK credentials to the browser.
-- Create Firestore in Native mode in the approved region.
-- Enable Firebase Storage and record the exact bucket name for `FIREBASE_STORAGE_BUCKET`. Keep the
-  bucket private; all object access goes through the authenticated Cloud Run backend.
-- Deploy `firestore.rules` only after emulator verification. These baseline rules deny all direct confidential client access.
+AI Studio publishes the application to a Cloud Run revision. Keep the application and cloud configuration aligned across releases.
 
-### 2.1 Email/password settings to verify before release
+- Keep public Firebase build variables and the server Gemini secret configured in the AI Studio project/deployment surface when supported.
+- Keep variable names stable. Ordinary UI and bug-fix commits must not introduce replacement values or rename deployment variables.
+- Verify runtime identity, IAM, Secret Manager references, instance limits, labels, and Firebase console settings after publishing.
+- Keep environment-specific values in managed configuration rather than source code.
 
-These are Firebase Console settings. The application cannot set them, and the application's
-enumeration-resistant copy is defence in depth rather than a substitute for them.
+## Firebase Authentication
 
-- Email-enumeration protection is **enabled**. Without it, Firebase returns
-  `auth/user-not-found` and `auth/wrong-password` separately; the Cognaxis error adapter still shows
-  one identical message, but request behaviour may differ.
-- Password policy is in **Require** mode.
-- Approved MVP policy: minimum 8 characters, maximum 128 characters. Avoid additional composition
-  rules unless the project owner approves them. The sign-up screen and the branded password-reset
-  screen both render whatever policy the project returns from `validatePassword()`, so changing the
-  range in the console needs no code change and no redeploy.
-- The verification email template uses the Cognaxis name and a real support address.
-- The password-reset email template uses the Cognaxis name and a real support address.
-- The public-facing project name is `Cognaxis`.
-- Action links return only to an authorized Cognaxis domain. The application supplies no
-  continuation URL of its own; confirm no open redirect or unapproved continuation URL has been
-  configured in the console.
-- Record the daily quota for verification and reset emails, and add monitoring for a spike, which is
-  the signal for the email-flooding threat (T30).
+- [ ] Google sign-in is enabled.
+- [ ] Email/password sign-in is enabled if offered by the application.
+- [ ] Email enumeration protection is enabled.
+- [ ] The password policy matches the product policy.
+- [ ] The production hostname is listed as an authorized domain.
+- [ ] Verification and password-reset templates use approved links and branding.
+- [ ] A new email/password user cannot access private routes before verification.
+- [ ] Sign-out, account switching, and one-time token refresh recovery work on the deployed origin.
 
-### 2.2 Branded email-action handler
+## Firestore
 
-Cognaxis ships a branded handler at `/auth/action`. Until the Firebase email templates are pointed
-at it, Firebase keeps using its own hosted page and the branded screen is simply unused. Nothing
-breaks either way, and the release must not be described as having a custom handler until step 4
-below has actually been performed.
+- [ ] A Native mode database exists in the intended region.
+- [ ] `firestore.rules` is deployed. It intentionally denies direct confidential client access.
+- [ ] Every composite and vector index in `firestore.indexes.json` is enabled.
+- [ ] The runtime identity can perform only the Firestore operations required by the server.
+- [ ] Cross-user and cross-organization requests fail through the deployed API.
 
-Perform in this order, each with project-owner approval:
+Required index groups currently include personal check-ins, personal insights, organizations, filtered/paginated platform users, platform admin audit, and the 768-dimensional `memoryChunks` vector field.
 
-1. Deploy the application so `/auth/action` is reachable on the production origin.
-2. Add that exact origin to Firebase Authorized domains if it is not already listed.
-3. Open a reset and a verification link manually against the deployed route and confirm each state
-   renders and completes.
-4. In Firebase Authentication, set the email templates' action URL to
-   `https://<production-origin>/auth/action`.
-5. Send a fresh verification email and a fresh reset email and complete both through the branded
-   page.
-6. Confirm an expired or already-used link shows the safe invalid state and leaks no code.
+The expected client policy is:
 
-`ActionCodeSettings.url` is not the action-handler URL: it only supplies the post-action continue
-destination. The template configuration in step 4 is what decides which page receives the code.
+```javascript
+rules_version = '2';
 
-If the console reports that template customisation is unavailable for this project, stop, keep
-Firebase's default handler, and record the restriction. Do not work around it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+```
 
-## 3. Gemini secret
+Deploy the checked-in rules and indexes from the repository root:
 
-- Enable Secret Manager only when ready to configure the runtime.
-- Create a secret named for the Cognaxis Gemini credential.
-- Add the key as a secret version without displaying it in screenshots, logs, shell history, source, or chat.
-- Expose the secret to Cloud Run as the `GEMINI_API_KEY` environment variable (Variables & Secrets -> Reference a secret) with a pinned numeric version; do not use `latest` and never paste the raw key.
+```bash
+npx firebase deploy \
+  --only firestore:rules,firestore:indexes \
+  --project YOUR_PROJECT_ID
+```
 
-## 4. Runtime identity and IAM
+Cognaxis verifies Firebase identity and binds the verified UID or authorized organization scope in Cloud Run; authenticated browsers receive no direct Firestore access. Because Firebase Admin bypasses client rules, least-privilege IAM and server authorization are both mandatory.
 
-- Create a dedicated keyless Cloud Run runtime service account.
-- Do not create or download a service-account key.
-- Grant only the datastore permissions required by the repository operations.
-- Grant `roles/secretmanager.secretAccessor` on the single Gemini secret, not at project scope.
-- If the optional Agent Platform fallback is approved and enabled, enable the Agent Platform
-  API and grant the runtime identity `roles/aiplatform.user`. It uses the runtime identity through
-  Application Default Credentials; do not create or download a service-account key.
-- Grant the runtime identity only the required object permissions on the Firebase Storage bucket
-  (prefer a bucket-level `roles/storage.objectAdmin` binding); do not grant project-wide Storage
-  administration.
-- Do not grant Owner, Editor, IAM administration, billing administration, or broad Secret Manager roles to the runtime.
-- Record sanitized IAM evidence without principal email addresses or project identifiers.
+## Firebase Storage
 
-## 5. Cloud Run
+- [ ] The private bucket exists and `FIREBASE_STORAGE_BUCKET` uses its exact name.
+- [ ] The Cloud Run identity can create, read, and delete application objects in that bucket.
+- [ ] The bucket is not publicly readable.
+- [ ] A user cannot fetch another user's or another organization's attachment through the API.
+- [ ] Attachment deletion removes metadata and the stored object.
 
-- Build from the reviewed commit using the included `Dockerfile`.
-- Set `APP_ORIGIN`, `GOOGLE_CLOUD_PROJECT`, `GEMINI_MODEL`, `FIREBASE_STORAGE_BUCKET`, and
-  `GEMINI_API_KEY` as the pinned Secret Manager reference.
-- Never set a plain `GEMINI_API_KEY` in production; only the Secret Manager reference is accepted.
-- Leave `AGENT_PLATFORM_FALLBACK_ENABLED=false` unless the fallback has been approved, the Agent
-  Platform API is enabled, and the runtime identity has `roles/aiplatform.user`. When enabled, set
-  only `AGENT_PLATFORM_FALLBACK_ENABLED=true`; it reuses `GOOGLE_CLOUD_PROJECT` and `GEMINI_MODEL`,
-  uses the global endpoint, and authenticates through the Cloud Run service identity. AI Studio is
-  always attempted first; any provider failure then receives one Agent Platform attempt.
-- Bind the dedicated runtime service account.
-- Set conservative request concurrency, timeout, maximum instances, and minimum instances for the demo budget.
-- Restrict unauthenticated access to the public HTTPS service only; all protected application routes still require Firebase tokens.
-- Configure budget alerts and review logs for metadata-only behavior.
+## Secret Manager
 
-## 6. Release verification
+- [ ] The Gemini API key is stored in a dedicated secret.
+- [ ] Cloud Run receives it as `GEMINI_API_KEY` through a Secret Manager reference.
+- [ ] The reference uses a reviewed numeric version for predictable releases.
+- [ ] The runtime identity has Secret Accessor only on that secret.
+- [ ] No raw key appears in Cloud Run plaintext variables, repository files, build logs, screenshots, or client assets.
 
-- Run Firestore emulator rule tests and API integration tests with synthetic User A/User B accounts.
-- Verify a forged, expired, wrong-project, and revoked token matrix.
-- Verify User A cannot read, summarize, delete, or infer User B data.
-- Inspect the production browser bundle for credentials and server-only modules
-  (`npm run security:check` performs this automatically once `npm run build` has produced
-  `dist/client`).
+Rotate and revoke the key immediately if it is exposed. Removing it from the latest commit is not enough once it has been published.
 
-### 6.1 Authentication release verification
+## Runtime identity and IAM
 
-After deployment, add the exact Cloud Run or custom production hostname to Firebase authorized
-domains and set the exact production `APP_ORIGIN`, then verify with synthetic accounts only:
+- [ ] Cloud Run uses a dedicated service account with no user-managed JSON key.
+- [ ] The runtime does not have Owner or Editor.
+- [ ] Firestore, Storage, Secret Manager, and optional Agent Platform access are the minimum required.
+- [ ] The Firebase Admin token-verification path works with Application Default Credentials.
+- [ ] Operator and deployment access are separate from runtime access where practical.
 
-- the real Google OAuth redirect completes and reaches the journal;
-- Google Auth Platform homepage, privacy-policy, and terms URLs are complete;
-- one real verification email arrives, its link verifies the account, and the journal opens only
-  after the refreshed token carries the verified claim;
-- one real password-reset email arrives, the hosted action page changes the password, the old
-  password fails, and the new password succeeds;
-- an unverified synthetic account receives `403 EMAIL_VERIFICATION_REQUIRED` from a private route;
-- production logs contain no email address, action link, action code, token, or private content;
-- the same email address used first with Google and then with email/password, and the reverse
-  order, behave as documented in threat T32, and any limitation observed is recorded rather than
-  described as seamless linking.
-- Verify exact-origin CORS, CSP, private/no-store responses, rate limits, and generic errors.
-- Verify Secret Manager access works through runtime identity without a user-managed key.
-- Verify deleting a session removes its messages and derived summary.
-- Record the tested commit, environment, date, sanitized result, and residual risks.
+## Cloud Run configuration
 
-## 7. Extended features (signals, insights, Maps, organizations, administration)
+Required server settings:
 
-### 7.1 Firestore indexes
+| Variable | Requirement |
+|---|---|
+| `APP_ORIGIN` | Exact production origin with no path or trailing slash |
+| `GOOGLE_CLOUD_PROJECT` | Project used by Firebase Admin and optional fallback |
+| `GEMINI_MODEL` | Supported configured model |
+| `GEMINI_API_KEY` | Secret Manager reference, not plaintext |
+| `FIREBASE_STORAGE_BUCKET` | Exact private bucket name |
+| `FIREBASE_AUTH_DOMAIN` | Exact authentication domain for CSP |
 
-- [ ] Deploy the versioned composite indexes together with the rules:
-      `firebase deploy --only firestore:rules,firestore:indexes --project <project>`.
-- [ ] Operational Deployment Note: Confirm in the Firebase Console that the `personalInsights`
-      (`periodType` ASCENDING, `periodStart` DESCENDING) and `platformUsers` composite indexes are
-      fully built and active before enabling or exercising the insights dashboard or the admin
-      user directory in production. If the insights index is missing or still building, the API
-      safely returns `503 INDEX_BUILDING` without leaking internal credentials or database paths.
+Optional server settings:
 
-### 7.2 Google Maps browser key
+- `AGENT_PLATFORM_FALLBACK_ENABLED`
+- `FEATURE_INSIGHTS`
+- `FEATURE_MAPS`
+- `FEATURE_ORGANIZATIONS`
+- `FEATURE_ADMIN`
 
-- [ ] Create one dedicated Maps JavaScript API browser key; never reuse the Firebase or any
-      server key.
-- [ ] Restrict websites to `http://localhost:3000/*` and the exact production origin.
-- [ ] Restrict APIs to the Maps JavaScript API only — explicitly not Generative Language,
-      Secret Manager, or any privileged Cloud API.
-- [ ] Set quota limits and a budget alert scoped to this key.
-- [ ] Provide it at build time as `VITE_GOOGLE_MAPS_API_KEY` (Docker build argument). If omitted,
-      the application intentionally degrades to accessible list views — record that state rather
-      than describing the interactive map as delivered.
+Public build settings managed by AI Studio:
 
-### 7.3 Feature flags
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+- optional `VITE_GOOGLE_MAPS_API_KEY`
 
-- [ ] Decide the launch state of `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`,
-      and `FEATURE_ADMIN` (all default to enabled) and set any overrides in the Cloud Run
-      environment. Disabled modules answer with generic 404s and hide their navigation.
+Also verify:
 
-### 7.4 Super-admin bootstrap
+- [ ] The service listens on Cloud Run's supplied port.
+- [ ] Maximum instances and request concurrency match the cost plan.
+- [ ] Budget alerts and provider quotas are configured.
+- [ ] Required challenge/service labels are present.
+- [ ] The production revision serves no source maps or development configuration.
+- [ ] `/api/health` returns only `{"status":"ok"}`.
 
-- [ ] Have the intended administrator sign in to the deployed application once.
-- [ ] Run `GOOGLE_CLOUD_PROJECT=<project> npx tsx scripts/admin/bootstrap-super-admin.ts <uid>`
-      with owner credentials. This is the only supported way to create the first super admin and
-      it initializes `platformControl/access` atomically.
-- [ ] Verify the Admin navigation appears for that account and that a second ordinary synthetic
-      account still receives 403 on `/api/v1/admin/*`.
+## Browser API keys
 
-### 7.5 Extended release verification (synthetic accounts only)
+Firebase web configuration is public by design. The Maps key is also visible in the browser. Protect them with Google Cloud restrictions:
 
-- [ ] A check-in with an approximate location stores rounded coordinates and appears on the
-      private map; deleting the reflection removes the pin.
-- [ ] A generated daily recap is grounded in that day's records; a repeated request returns the
-      stored result; the eleventh generation in fifteen minutes is rate-limited.
-- [ ] Org A's invited viewer can read but cannot write or trigger Gemini; an Org B account
-      cannot reach Org A by any identifier; a revoked invitation link no longer works.
-- [ ] The super admin sees counts, directory metadata, and audit events but no journal text,
-      session identifier, coordinate, or wellbeing value (canary review of responses and logs).
-- [ ] Suspending a synthetic user blocks every API without deleting data; restoring re-enables.
-- [ ] Suspending an organization blocks its workspace while personal journals stay usable.
-- [ ] The container serves on the injected `PORT` and `/api/health` passes on Cloud Run.
+- [ ] Allow only the required APIs.
+- [ ] Add exact production HTTP referrers and approved preview origins.
+- [ ] Remove unrelated APIs and origins.
+- [ ] Never reuse either browser key as a Gemini or server credential.
+
+## First super admin
+
+The first super admin is created only after that user has signed in once:
+
+```bash
+GOOGLE_CLOUD_PROJECT=<project-id> npx tsx scripts/admin/bootstrap-super-admin.ts <firebase-uid>
+```
+
+Run this from a trusted operator environment with Application Default Credentials. Do not place the real UID in scripts or documentation. There is intentionally no public bootstrap endpoint.
+
+## Release verification
+
+Use dedicated synthetic accounts, never a real user's journal.
+
+- [ ] Public landing, privacy, terms, and authentication routes load.
+- [ ] Google and email/password authentication work.
+- [ ] A reflection streams, persists after refresh, summarizes, archives, restores, and deletes.
+- [ ] Ask Me returns a grounded source for known personal and team history.
+- [ ] Image/document attachment and voice transcription paths work.
+- [ ] Check-ins, insights, and Maps or its explicit fallback work.
+- [ ] Owner/admin/member/viewer behavior matches the role matrix.
+- [ ] Viewer-only teams do not appear in the Journal creation selector.
+- [ ] User and audit administration APIs load for a super admin and reject an ordinary user.
+- [ ] Admin responses contain no journal, message, check-in, location, attachment, or memory content.
+- [ ] Browser console and server logs contain no credentials or private content.
+- [ ] `npm run security:check` passes against a fresh production build.
+
+Record only sanitized outcomes. Do not commit screenshots or reports that contain account identifiers or production configuration.

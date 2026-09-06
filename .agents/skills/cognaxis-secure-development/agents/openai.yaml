@@ -1,4 +1,4 @@
 interface:
   display_name: "Cognaxis Secure Development"
-  short_description: "Build Cognaxis with security gates"
-  default_prompt: "Use $cognaxis-secure-development to design or implement this Cognaxis change with the required security checks."
+  short_description: "Build Cognaxis without crossing trust boundaries"
+  default_prompt: "Use $cognaxis-secure-development to complete this Cognaxis change while preserving its personal/team scope, memory, privacy, and deployment conventions."

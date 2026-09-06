@@ -1,237 +1,230 @@
 # Cognaxis
 
-**A security-first personal intelligence journal and evolving organizational intelligence platform built with Gemini and Google Cloud.**
+Secure cognitive memory for people and teams.
 
-Cognaxis combines an authenticated conversational workspace with permission-scoped memory, structured reflection summaries, personal signal tracking, periodic insights, and role-aware organization surfaces. Its core design rule is simple: authorize before retrieval, keep private and organization data in separate scopes, and never rely on the model to enforce access control.
+Cognaxis turns reflections, decisions, blockers, check-ins, and shared updates into permission-scoped memory that can be revisited later. Gemini guides the conversation, creates structured summaries, and answers questions from authorized personal or team history with source links.
 
-> **Project status:** active development. The application and automated test suite run locally; production use still requires the Firebase, Google Cloud, IAM, and deployment steps documented below.
+[Live application](https://cognaxis.ai.studio) | [Security policy](SECURITY.md) | [Architecture](docs/architecture/SECURITY_ARCHITECTURE.md)
 
-## What the project demonstrates
+## Demo
 
-- **Conversational intelligence:** multi-turn Gemini conversations with bounded context and schema-validated summaries
-- **Multimodal capture:** inline voice transcription plus private image and document attachments sent only to the selected scope
-- **Private memory:** server-derived Firestore paths for personal sessions, messages, summaries, signals, insights, and cascade deletion
-- **Identity and access control:** Firebase authentication, verified-email checks, server-side token verification, platform roles, and organization role enforcement
-- **Organization workflows:** organization creation, membership, single-use invitations, team administration, and audit events while personal journals remain separately authorized
-- **Grounded retrieval:** scope-specific Firestore vector memory for personal and team questions, with source citations and a safe keyword fallback when vector indexes are unavailable
-- **Platform administration:** protected user, role, status, and high-level metrics surfaces for super administrators
-- **Security by construction:** server-only model access, Secret Manager integration, Zod validation, exact-origin CORS, security headers, request limits, redacted errors, and deny-by-default Firestore client rules
-- **Verification evidence:** unit, component, integration, negative authorization, accessibility, and repository security checks
+- [Working prototype](https://cognaxis.ai.studio)
+- [Demo social post](https://x.com/Lubin_Raj/status/2096653930914865446?s=20) (`#AccelerateAIwithCloudRun`)
 
-## Technology
+## Why Cognaxis
 
-`React` `TypeScript` `Vite` `Express` `Firebase Auth` `Firestore` `Gemini` `Google Cloud` `Cloud Run` `Secret Manager` `Zod` `Vitest` `Testing Library` `Tailwind CSS`
+Useful context is usually scattered across private notes, chats, and meetings. Cognaxis creates two deliberately separate memory spaces:
 
-## Implementation status
+- **Personal memory:** a private journal, check-ins, reflections, summaries, insights, and Ask Me search visible only to the account owner.
+- **Team memory:** organization-owned reflections and summaries shared according to a server-enforced role model.
 
-Implemented and verified by the local automated suite:
+Personal content is never made available to an organization merely because its owner belongs to that organization. Scope is authorized before Firestore retrieval or Gemini invocation.
 
-- React + TypeScript + Vite authenticated interface with real routes (`/app/journal`,
-  `/app/insights`, `/app/map`, `/app/organizations`, `/app/organizations/:orgId`, `/app/admin`,
-  `/join`), deep links, browser history, and lazy-loaded feature modules;
-- Firebase Google and email/password sign-in with SDK-managed token lifecycle, verification, and
-  password reset;
-- Express API behind one shared private pipeline: token verification, per-user rate limiting,
-  verified email, live platform-status enforcement, and private/no-store responses;
-- personal sessions, messages, summaries, exports, and cascade deletion under
-  `users/{verifiedUid}`, including signal and derived-insight cleanup;
-- optional per-reflection check-ins (mood and energy 1–5, controlled emotions, private note,
-  opt-in exact/approximate location) with strict validation and honest precision reduction;
-- deterministic 7/30/90-day insights dashboard computed server-side from self-reports only;
-- on-demand daily and weekly Gemini recaps that are grounded, schema-validated,
-  evidence-checked, idempotent, staleness-aware, and never stored when invalid;
-- a private map endpoint and page with a synchronized accessible list that works without Google
-  Maps and upgrades to the official Maps JavaScript API when a restricted browser key is built in;
-- organization workspaces with transactional creation, one-time hashed invitations accepted
-  atomically, a server-enforced owner/admin/member/viewer matrix, organization-scoped Gemini
-  conversations and summaries, settings, member management, and fixed-schema audit events;
-- platform administration for an offline-bootstrapped super admin: metadata-only overview and
-  usage counters, a paginated user directory, transactional role/status mutations protected by an
-  active-super-admin counter, organization suspension, and an append-only audit trail;
-- server-enforced feature flags surfaced through `/api/v1/me/capabilities`;
-- server-only Gemini calls with bounded context and structured output validation;
-- Secret Manager credential adapter using Application Default Credentials;
-- Zod validation, exact-origin CORS, security headers, body limits, private caching, sanitized
-  logging and errors, and per-operation rate limits (counted per running instance; transactional
-  request-id idempotency in the data layer is the cross-instance duplicate protection);
-- deny-by-default Firestore client rules and versioned composite indexes;
-- 644+ synthetic unit, repository, integration, and component tests covering the cross-user,
-  cross-organization, role-matrix, injection, and admin non-disclosure boundaries.
+## Core capabilities
 
-Production deployment also requires the external configuration described below:
-
-- attach Firebase to the ideathon Google Cloud project;
-- enable the sign-in providers and register authorized domains;
-- create the Firestore database, deploy the deny-all rules and the composite indexes;
-- enable Firebase Storage and configure its private bucket for private image/document attachments;
-- create the Gemini secret and dedicated Cloud Run runtime identity;
-- create and restrict a separate Google Maps JavaScript browser key;
-- grant secret-specific and datastore-specific IAM;
-- configure Cloud Run environment values and deploy;
-- bootstrap the first super admin with the reviewed offline script;
-- run emulator and deployed synthetic-user security tests.
-
-No real credentials or private user content belong in this repository.
+- Multi-turn personal and team reflections with streamed Gemini responses
+- AI-generated titles, tags, structured summaries, and grounded source citations
+- Personal and team Ask Me retrieval using scoped Firestore vector search with bounded lexical fallback
+- Image and document attachments plus transient voice transcription
+- Optional private mood, energy, emotion, note, and location check-ins
+- Deterministic 7, 30, and 90-day dashboards with grounded daily and weekly recaps
+- Reflection archive, restore, export, permanent deletion, and derived-data cleanup
+- Organization creation, invitations, owner/admin/member/viewer roles, and audit events
+- Metadata-only platform administration that cannot read journal content
+- Google and email/password authentication with verified-email enforcement
 
 ## Architecture
 
 ```text
-Untrusted browser
-  -> Firebase Authentication
-  -> Google Maps JavaScript API (only on map/location screens, separate restricted browser key)
-  -> HTTPS Express API with Firebase ID token
-      -> verify token, derive uid, enforce verified email and active platform status
-      -> resolve exactly one scope: personal(uid) | organization(orgId, role) | platform admin
-      -> validate and authorize before every Firestore read or Gemini call
-      -> users/{verifiedUid}/personalSessions|personalMemories|personalSignals|personalInsights
-      -> users/{verifiedUid}/settings/preferences, organizationMemberships (navigation edges)
-      -> organizations/{orgId}/members|invites|auditEvents|workspaceSessions|workspaceSummaries
-      -> platformUsers, platformControl/access, platformUsageDaily, platformAdminAudit
-      -> Gemini with minimum authorized scope-specific context
-      -> Secret Manager through Cloud Run runtime identity
+React + Vite browser
+  |  Firebase ID token over HTTPS
+  v
+Express API on Cloud Run
+  |  verify identity and active account
+  |  resolve personal or organization scope
+  |  authorize role before every read, retrieval, model call, and write
+  |
+  +--> Firebase Authentication
+  +--> Cloud Firestore
+  +--> Firebase Storage
+  +--> Gemini API through a server-only secret
+  +--> optional Agent Platform fallback through Cloud Run identity
 ```
 
-The browser never receives a Gemini credential, Admin SDK privilege, service-account key, or Secret Manager access. Confidential Firestore client access is denied by `firestore.rules`; the backend remains responsible for authorization because Admin SDK operations bypass those rules.
+The browser never receives a Gemini key, Admin SDK credential, service-account key, or Secret Manager permission. Confidential Firestore access is server-side; the checked-in Firestore client rules deny direct reads and writes.
 
-## Development, preview, and publishing
+For request flows, data paths, retrieval behavior, and security boundaries, see the [architecture document](docs/architecture/SECURITY_ARCHITECTURE.md).
 
-The supported project workflow is intentionally simple:
+## Firestore security and user isolation
 
-1. Develop and review source code locally.
-2. Commit and push the reviewed changes to GitHub.
-3. Sync the latest GitHub commit into Google AI Studio.
-4. Exercise the application in AI Studio Preview.
-5. Publish from Google AI Studio; AI Studio builds and deploys the Cloud Run service.
-6. Complete the one-time production configuration below, then test the published URL.
+Cognaxis includes deployable Firestore Security Rules in [`firestore.rules`](firestore.rules). Because confidential database access is performed by the Cloud Run backend rather than the browser, the client rules deliberately deny every direct read, write, and query:
 
-Local application startup and local container builds are not part of the normal release path.
-There is no CI/CD pipeline: automated tests are development-only tooling run locally when
-useful, and the production smoke suite drives the published Cloud Run URL from a local
-Playwright runner on demand.
+```javascript
+rules_version = '2';
 
-Google AI Studio builds and deploys only — it runs `npm install`, `npm run build`, and
-`npm start`, and never runs the test suites. The tests are not part of the build or deploy path
-and are not required to publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+```
 
-### Production configuration
+User isolation is enforced in two layers:
 
-Google AI Studio must retain the public Firebase web configuration used by the preview and build:
+1. The rules above prevent anonymous and authenticated web/mobile clients from bypassing the API.
+2. Cloud Run verifies the Firebase ID token, derives the UID from the verified token, and constructs personal paths under `users/{verifiedUid}/...`. Organization access similarly requires active membership and a server-resolved role before Firestore access.
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_APP_ID`
-- optional `VITE_GOOGLE_MAPS_API_KEY`
+Firebase Admin bypasses Firestore Security Rules, so the backend combines verified-identity authorization with a least-privilege runtime identity. Confidential data is not exposed through a browser-writable Firestore path.
 
-These browser values are identifiers, not authorization secrets. Restrict the Firebase key to the
-required Firebase APIs and restrict the Maps key to the Maps JavaScript API and approved website
-origins. Never provide the Gemini key, a service-account key, or an Admin SDK credential to the
-browser build.
+The reproducible Firebase configuration is checked in as:
 
-After the first AI Studio publication, open its Cloud Run service through **Advanced settings** and:
+- [`firebase.json`](firebase.json): connects the Firebase CLI to the rules and index files.
+- [`firestore.rules`](firestore.rules): deny-all direct-client policy.
+- [`firestore.indexes.json`](firestore.indexes.json): composite and vector indexes used by the API.
+- [`.env.example`](.env.example): variable names and safe placeholders only.
 
-1. bind the dedicated keyless runtime identity
-   `cognaxis-runtime@ideathon-journal.iam.gserviceaccount.com`;
-2. set `APP_ORIGIN` to the exact published HTTPS origin;
-3. set `GOOGLE_CLOUD_PROJECT=ideathon-journal`;
-4. set `GEMINI_MODEL=gemini-3.7-flash`;
-5. set `FIREBASE_STORAGE_BUCKET` to the exact Firebase Storage bucket name;
-6. add `GEMINI_API_KEY` as a Secret Manager reference exposed as an environment variable
-   (pinned numeric version — never paste the raw key);
-7. set `FIREBASE_AUTH_DOMAIN` to the exact Firebase authentication domain;
-8. decide the `FEATURE_INSIGHTS`, `FEATURE_MAPS`, `FEATURE_ORGANIZATIONS`, and
-   `FEATURE_ADMIN` launch flags;
-9. optionally set `AGENT_PLATFORM_FALLBACK_ENABLED=true` after enabling the Agent Platform API and
-   granting the runtime identity `roles/aiplatform.user`. The fallback reuses
-   `GOOGLE_CLOUD_PROJECT` and `GEMINI_MODEL`, always uses the global endpoint, and needs no key;
-10. apply the required label `dev-tutorial=cloud-run-ai-challenge`.
+## Technology
 
-The runtime identity receives `roles/datastore.user` on the project, object read/write/delete
-access on the private Firebase Storage bucket, and `roles/secretmanager.secretAccessor` only on
-the Gemini secret. It must not receive Owner or Editor, and no service-account JSON key is created
-or uploaded. When the optional Agent Platform fallback is enabled, it authenticates with this Cloud
-Run identity through Application Default Credentials; the AI Studio `GEMINI_API_KEY` is still used
-only by the primary Gemini Developer API request.
+| Layer | Technology |
+|---|---|
+| Client | React 19, TypeScript, Vite, Tailwind CSS |
+| API | Node.js 22, Express 5, Zod |
+| Identity | Firebase Authentication and Firebase Admin token verification |
+| Data | Cloud Firestore and Firebase Storage |
+| AI | Gemini API through `@google/genai` |
+| Runtime | Google Cloud Run and Secret Manager |
+| Quality | Vitest, Testing Library, Playwright, Firebase Emulator Suite, ESLint |
 
-In Firebase Console:
+## Local setup
 
-1. confirm Google and Email/Password providers, the 8–128 password policy, and enumeration
-   protection;
-2. create Firestore in Native mode if it does not already exist;
-3. publish the repository's deny-by-default `firestore.rules`;
-4. create the composite indexes described by `firestore.indexes.json`;
-5. add the published Cloud Run hostname to Authentication authorized domains;
-6. optionally point authentication email templates to
-   `https://<published-origin>/auth/action` after that route has been tested.
+Prerequisites:
 
-The first super administrator is created only by the reviewed offline bootstrap script after that
-person has signed in once. There is intentionally no public API for creating the first administrator.
-
-### Production verification
-
-Use dedicated synthetic accounts to verify Google and email sign-in, verification and password
-reset, one real Gemini conversation, persistence after refresh, deletion, check-ins and recaps,
-Maps or its documented fallback, organization role isolation, and the metadata-only super-admin
-surface. Confirm `/api/health` returns `{"status":"ok"}` and the Cloud Run service retains the
-required challenge label.
-
-## Verification
+- Node.js 22 LTS
+- A Firebase project with Authentication enabled
+- Google Cloud CLI with Application Default Credentials for the server
+- Firebase CLI; Java is additionally required for emulator-based rules tests
+- A Gemini API key for local development
 
 ```bash
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run security:check
-npm audit
+git clone https://github.com/LubinRaj/Cognaxis.git
+cd Cognaxis
+npm ci
+cp .env.example .env.local
+npm run dev
 ```
 
-The full local gate, including the Playwright browser suite, is one command (no Java, no running
-application, no other setup — everything starts itself):
+Open `http://localhost:3000`. Populate `.env.local` with your own project values. Environment files other than `.env.example` are ignored by Git.
+
+### Configuration
+
+| Variable | Exposure | Purpose |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY` | Browser identifier | Firebase web application configuration |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Browser identifier | Firebase Authentication domain |
+| `VITE_FIREBASE_PROJECT_ID` | Browser identifier | Firebase project identifier |
+| `VITE_FIREBASE_APP_ID` | Browser identifier | Firebase web application identifier |
+| `APP_ORIGIN` | Server configuration | Exact browser origin accepted by the API |
+| `GOOGLE_CLOUD_PROJECT` | Server configuration | Google Cloud project used by the backend |
+| `GEMINI_MODEL` | Server configuration | Gemini model name |
+| `GEMINI_API_KEY` | **Secret** | Server-only Gemini credential |
+| `FIREBASE_STORAGE_BUCKET` | Server configuration | Private attachment bucket |
+| `FIREBASE_AUTH_DOMAIN` | Server configuration | Authentication frame CSP allowlist |
+| `VITE_GOOGLE_MAPS_API_KEY` | Restricted browser key | Optional Maps JavaScript API key |
+| `AGENT_PLATFORM_FALLBACK_ENABLED` | Server configuration | Enables the optional keyless fallback |
+| `FEATURE_*` | Server configuration | Enables or disables optional product areas |
+
+Never add `VITE_` to a secret name. Vite embeds all `VITE_*` values in the browser bundle.
+
+## Useful commands
 
 ```bash
-npm run test:all
+npm run dev             # local client and API
+npm run typecheck       # application and test type checks
+npm run lint            # static analysis
+npm test                # unit, component, and API integration tests
+npm run build           # production client and server build
+npm run security:check  # repository and client-bundle policy checks
+npm run test:e2e        # local Chromium journeys
+npm run test:emulator   # Firestore rules and repository tests; requires Java
+npm run test:all        # complete local verification gate
 ```
 
-Optional extras: `npm run test:emulator` (Security Rules + real Firestore repository
-transactions; the only suite that needs a Java runtime) and `npm run test:prod-smoke`
-(explicitly invoked smoke of the published Cloud Run URL with a dedicated synthetic account).
-The architecture and safety guards are documented in
-[docs/testing/AUTOMATED_TESTING.md](docs/testing/AUTOMATED_TESTING.md).
+Tests use synthetic identities and local emulators. Do not point destructive or bulk tests at production.
 
-`npm audit --omit=dev` currently reports six Moderate production findings, all one documented
-transitive advisory inherited through Firebase Admin's optional Cloud Storage dependency;
-Cognaxis does not invoke the affected UUID buffer APIs or Cloud Storage. Full `npm audit`,
-including development tooling, currently reports thirteen Moderate findings — the additional
-seven are inherited through the pinned Firebase CLI used only for local emulator testing; it is
-a development dependency that is never imported by application code. There are no High or Critical
-findings. Both chains remain tracked in
-[the dependency risk register](docs/security/DEPENDENCY_RISK_REGISTER.md) (D-01, D-02); no
-forced downgrade (`npm audit fix --force`) or incompatible override is permitted merely to make
-the report empty.
+## Reproduce and deploy
 
-## Security documents
+### 1. Prepare Firebase and Google Cloud
 
-- [AI Studio Security Constitution](docs/security/AI_STUDIO_SECURITY_CONSTITUTION.md)
-- [Security Architecture](docs/architecture/SECURITY_ARCHITECTURE.md)
-- [Threat Model](docs/security/THREAT_MODEL.md)
-- [Security Test Plan](docs/security/SECURITY_TEST_PLAN.md)
-- [Phase 1 Evidence Checklist](docs/evidence/PHASE_1_EVIDENCE.md)
-- [Phase 2 Implementation Evidence](docs/evidence/PHASE_2_IMPLEMENTATION_EVIDENCE.md)
-- [Phase 3 Product UI Evidence](docs/evidence/PHASE_3_PRODUCT_UI_EVIDENCE.md)
-- [Phase 4 Extended Features Evidence](docs/evidence/PHASE_4_EXTENDED_FEATURES_EVIDENCE.md)
-- [Cloud Setup Checklist](docs/deployment/CLOUD_SETUP_CHECKLIST.md)
+In a new project:
 
-## Repository policy
+1. Create a Firestore Native mode database and a Firebase web app.
+2. Enable the Firebase Authentication providers you intend to expose, then add the local and deployed hostnames to Authentication's authorized domains.
+3. Create a private Firebase Storage bucket when attachments are enabled.
+4. Enable Cloud Run, Cloud Build, Artifact Registry, Secret Manager, Firestore, and the Gemini API used by the project.
+5. Create a dedicated keyless Cloud Run service account. Grant only the required Firestore, Firebase Authentication viewer, bucket-level Storage object, and secret-specific Secret Accessor permissions. Do not grant Owner or Editor.
 
-Enable the versioned commit-message policy after cloning:
+### 2. Deploy Firestore rules and indexes
+
+Run this from the repository root after authenticating the Firebase CLI. The explicit project argument avoids committing a production project ID in `.firebaserc`:
 
 ```bash
-git config core.hooksPath .githooks
+npx firebase deploy \
+  --only firestore:rules,firestore:indexes \
+  --project YOUR_PROJECT_ID
 ```
 
-No commit or push is performed without the project owner's explicit approval. Do not add automated-tool attribution or co-author trailers. Preserve required third-party licenses.
+The deny-all rules can also be copied from `firestore.rules` into **Firebase Console → Firestore Database → Rules → Publish**. Composite indexes can be created in the console, but deploying `firestore.indexes.json` is the reproducible path. Wait until every required composite and vector index reports ready before testing administration or Ask Me.
+
+### 3. Configure the application
+
+Copy `.env.example` to `.env.local` for local development and replace only the placeholders with values from your own project. Then authenticate the server without downloading a service-account key:
+
+```bash
+gcloud auth application-default login
+npm run dev
+```
+
+For production, configure the public `VITE_*` Firebase values as build settings and the server values listed above as runtime settings. Store the Gemini key in Secret Manager and expose it to Cloud Run as `GEMINI_API_KEY`; do not add the value to source, a Docker image, or a plaintext committed environment file.
+
+### 4. Publish through AI Studio
+
+The maintained release flow is local verification, GitHub push, Google AI Studio sync, Preview, and AI Studio publish to Cloud Run. The build contract is `npm ci`, `npm run build`, and `npm start`.
+
+After publishing, verify that AI Studio preserved the environment variables, Secret Manager reference, runtime service account, IAM bindings, instance limits, and required campaign label. Apply the challenge label if it is absent:
+
+```bash
+gcloud run services update SERVICE_NAME \
+  --update-labels=dev-tutorial=cloud-run-ai-challenge \
+  --region=REGION \
+  --project=YOUR_PROJECT_ID
+```
+
+Run the release checks in the [cloud setup checklist](docs/deployment/CLOUD_SETUP_CHECKLIST.md) against synthetic accounts. Publishing code must never be allowed to replace external security settings with placeholder values.
+
+## Repository structure
+
+```text
+src/client/       React application and Firebase Auth client
+src/server/       Express API, authorization, services, and repositories
+src/shared/       Shared schemas and domain types
+tests/            Unit, component, integration, emulator, and browser tests
+scripts/          Reviewed administrative and repository-safety utilities
+docs/             Architecture, deployment, security, and testing references
+.agents/skills/   Cognaxis-specific development skill
+```
+
+## Security and privacy
+
+Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability or changing a trust boundary. The project uses least-privilege IAM, server-side authorization, scope-specific storage and retrieval, structured validation, exact-origin CORS, private caching, bounded requests, generic client errors, and secret scanning.
+
+No real credentials, production identifiers, private journal content, or production data belong in this repository.
+
+## Retrieval architecture
+
+Cognaxis creates scope-rooted semantic memory from reflections, summaries, tags, and authorized attachment text. Ask Me searches only the selected personal or organization scope, validates sources before returning citations, and uses a safe text-retrieval path when semantic search is unavailable. See [Architecture: Memory and Ask Me](docs/architecture/SECURITY_ARCHITECTURE.md#memory-and-ask-me).
 
 ## License
 
-No license has been selected. All rights are reserved until the project owner chooses one explicitly.
+No open-source license has been selected. The source is publicly viewable, but reuse rights are not granted until the owner adds a license.

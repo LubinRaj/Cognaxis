@@ -1,243 +1,190 @@
-# Cognaxis Security Architecture
+# Cognaxis Architecture
 
-Status: Approved Phase 1 baseline
-Scope: Security-critical MVP
-Primary deployment region: To be confirmed before Firestore creation
+Last reviewed: 6 September 2026
 
-## 1. Product and security objective
+This document describes the behavior implemented in the repository. It is not a claim that external cloud configuration has been verified.
 
-Cognaxis provides two explicit operating scopes:
+## Product model
 
-- **Personal:** private conversations, memories, reflections, and derived intelligence owned by one authenticated user.
-- **Organization:** records intentionally created or copied into an organization and available according to active membership and role.
+Cognaxis has three authorization domains:
 
-The primary assurance objective is to prevent data or derived intelligence from crossing user or organization boundaries without explicit, authorized action.
+1. **Personal:** private reflections, messages, summaries, attachments, check-ins, insights, and semantic memory owned by one verified Firebase user.
+2. **Organization:** shared reflections and organization records available only to active members under owner, admin, member, and viewer permissions.
+3. **Platform administration:** operational identity, status, organization, usage, and audit metadata available to active super admins. It has no journal-content endpoint.
 
-## 2. Security-critical MVP
+An organization role never grants access to a member's personal data. Personal content is not copied into an organization automatically.
 
-Included:
-
-- Firebase Google Sign-In;
-- Firebase email/password registration and sign-in;
-- Firebase-managed email verification, with private data gated on the verified token claim;
-- Firebase-managed password reset through hosted action links;
-- authenticated multi-turn Gemini interaction;
-- personal sessions, messages, summaries, and memory;
-- explicit personal/organization workspace selection;
-- organization creation and membership;
-- organization-scoped updates and intelligence;
-- source provenance for retrieved memories and derived insights;
-- Cloud Run deployment and Secret Manager integration.
-
-Gated until separately threat-modeled:
-
-- voice and raw audio;
-- arbitrary document uploads;
-- email or calendar integration;
-- external URL retrieval;
-- general-purpose tools or plugins;
-- autonomous external or destructive actions;
-- employee sentiment, personality, performance, or attrition analysis.
-
-## 3. Trust boundaries and data flow
+## Runtime topology
 
 ```text
 Untrusted browser
   |
-  | Credential operations never touch the Cognaxis backend:
-  |   Google Sign-In        --> Firebase Authentication
-  |   Email/password sign-up --> Firebase Authentication
-  |   Email/password sign-in --> Firebase Authentication
-  |   Password reset request --> Firebase Authentication (hosted action link)
-  |   Email verification     --> Firebase Authentication (hosted action link)
-  |
-  | 1. Firebase returns a session; the SDK owns the refresh token
-  | 2. HTTPS request with Firebase ID token
+  | Firebase sign-in and SDK-managed session
+  | Authorization: Bearer <Firebase ID token>
   v
-Public Cloud Run web/API boundary
+Cloud Run: Node.js 22 + Express 5
   |
-  |-- verify token; derive uid, email_verified, sign_in_provider
-  |-- require a verified email before any private journal access
-  |-- validate schema and bounds
-  |-- resolve workspace
-  |-- verify organization membership and role where applicable
-  |-- enforce rate, cost, and action policy
+  | request ID, security headers, CORS, JSON bounds, rate limits
+  | Firebase Admin token verification
+  | verified-email and active-platform-user gates
+  | scope and role authorization
   |
-  +--> exact personal Firestore path
-  +--> exact authorized organization Firestore path
-  +--> scope-specific semantic query
-  +--> Gemini with minimum authorized context
-  +--> redacted structured logging
-  +--> Secret Manager through runtime identity
+  +--> Cloud Firestore through Firebase Admin
+  +--> Firebase Storage through Firebase Admin
+  +--> Gemini API through a server-only secret
+  +--> optional Agent Platform fallback through Application Default Credentials
+  v
+React 19 + Vite single-page application served by the same process
 ```
 
-### Boundary rules
+Authentication credential operations belong to Firebase Authentication. Cognaxis has no password, login, refresh-token, password-reset, or email-verification API. The Firebase client SDK owns token persistence and refresh.
 
-1. The browser is not a policy enforcement point.
-2. Protected routes authenticate every request independently.
-3. Authorization precedes Firestore access, semantic retrieval, Gemini calls, and writes.
-4. The backend sends Gemini only context already authorized for the current operation.
-5. Model output cannot grant access or authorize a side effect.
-6. Data scope is represented structurally in datastore paths and queries, not only in prompt text.
+## Protected request pipeline
 
-## 4. Identity and authorization
+Every `/api/v1` request passes through one shared pipeline before feature routes run:
 
-### Authentication
+1. Verify the Firebase ID token and derive the effective UID.
+2. Apply short-window and minute-window limits keyed by that verified UID.
+3. Require a verified email claim.
+4. Load the live platform user and reject a suspended account.
+5. Mark the response `private, no-store`.
+6. Run the feature-specific personal, organization, or super-admin authorization.
+7. Validate input before data access or model invocation.
 
-- Firebase Authentication issues an ID token after Google Sign-In or email/password sign-in.
-- Cognaxis has no `/login`, `/signup`, `/refresh-token`, `/forgot-password`, or `/password-reset`
-  endpoint. Password creation, comparison, storage, reset, and email verification are performed by
-  Firebase Authentication, and no Cognaxis endpoint ever receives a password or a refresh token.
-- The browser sends the token in `Authorization: Bearer <token>` over HTTPS.
-- The backend verifies format, signature, expiry, issuer, and audience using the Firebase Admin SDK.
-- The backend uses only the verified token's `uid` as the effective user identity, and derives
-  `emailVerified` and `signInProvider` from the same verified claims.
-- The sign-in provider is diagnostic metadata. It is never an authorization role.
+The API client requests a current token for each protected call. A qualifying `401 UNAUTHENTICATED` can cause one forced refresh and one replay only. Authorization denials, validation errors, rate limits, and server errors are not treated as refresh problems.
 
-### Email verification as an access gate
+## Data layout
 
-Private journal routes require `email_verified === true` in the verified token. The middleware runs
-after authentication and rate limiting and before any handler, repository read, or model call, and
-returns a generic `403 EMAIL_VERIFICATION_REQUIRED`. The browser's `user.emailVerified` value only
-improves the interface; it is never the authorization decision. Google accounts satisfy the gate
-through their own verified Firebase claim.
-
-Sensitive membership, role, export, or deletion operations may require recent authentication and revocation-aware verification. App Check may reduce automated abuse but does not replace identity or authorization.
-
-### Session and token lifecycle
-
-The Firebase JavaScript SDK owns persistence and refresh. Cognaxis declares its persistence chain
-explicitly (`indexedDBLocalPersistence`, then `browserLocalPersistence`) and otherwise never reads,
-serialises, stores, transmits, or logs an ID token or refresh token. The API client requests a
-current token immediately before each protected call. A `401 UNAUTHENTICATED` — which the server
-emits before any handler runs — triggers exactly one forced refresh and one replay; any further
-failure clears private client state and returns the user to reauthentication.
-
-### Organization authorization
-
-An `orgId` in a request is a resource locator, not proof of access. Before organization data is read or passed to Gemini, the server verifies:
-
-1. the requester has an active membership record;
-2. the operation is allowed for the server-resolved role;
-3. the target object belongs to that organization;
-4. the operation preserves server-authoritative ownership, scope, and provenance fields.
-
-Organization role changes are transactionally authorized. A user cannot assign themselves a role through a profile or request body.
-
-## 5. Datastore isolation contract
+Important Firestore paths are scope-rooted:
 
 ```text
-users/{uid}
 users/{uid}/personalSessions/{sessionId}
 users/{uid}/personalSessions/{sessionId}/messages/{messageId}
-users/{uid}/personalMemories/{memoryId}
-users/{uid}/personalSettings/{settingId}
+users/{uid}/personalSessions/{sessionId}/exchanges/{requestId}
+users/{uid}/personalMemories/session_{sessionId}
+users/{uid}/memoryChunks/{sessionId}
+users/{uid}/attachments/{attachmentId}
+users/{uid}/personalSignals/{sessionId}
+users/{uid}/personalCheckIns/{checkInId}
+users/{uid}/personalInsights/{periodKey}
+users/{uid}/organizationMemberships/{orgId}
+users/{uid}/settings/preferences
 
 organizations/{orgId}
 organizations/{orgId}/members/{uid}
-organizations/{orgId}/sessions/{sessionId}
-organizations/{orgId}/sessions/{sessionId}/messages/{messageId}
-organizations/{orgId}/memories/{memoryId}
-organizations/{orgId}/decisions/{decisionId}
-organizations/{orgId}/insights/{insightId}
+organizations/{orgId}/invites/{inviteId}
 organizations/{orgId}/auditEvents/{eventId}
+organizations/{orgId}/workspaceSessions/{sessionId}
+organizations/{orgId}/workspaceSessions/{sessionId}/messages/{messageId}
+organizations/{orgId}/workspaceSummaries/session_{sessionId}
+organizations/{orgId}/memoryChunks/{sessionId}
+organizations/{orgId}/attachments/{attachmentId}
+organizations/{orgId}/settings/eod
+organizations/{orgId}/eodStatus/{uid}_{localDate}
+
+platformUsers/{uid}
+platformControl/access
+platformAdminAudit/{eventId}
+platformUsageDaily/{date}
 ```
 
-Required server-authoritative metadata:
+Ownership, role, scope, timestamps, provenance, and audit fields are set by the server where authoritative. Firestore client rules deny direct access to confidential collections. Firebase Admin bypasses those rules, so server authorization and runtime IAM remain mandatory.
 
-- `createdBy`
-- `createdAt`
-- `updatedAt`
-- `scopeType`: `personal` or `organization`
-- `scopeId`: verified `uid` or authorized `orgId`
-- `sourceIds` for derived data
-- `schemaVersion`
+## Reflection flow
 
-The web client does not directly read or write confidential Firestore collections in the baseline architecture. Firestore client rules therefore deny those operations by default. Server SDKs bypass Firestore rules, so backend authorization and least-privilege IAM are mandatory.
+A message send follows this path:
 
-## 6. Semantic retrieval contract
+1. The client creates a UUID request ID and opens an NDJSON stream.
+2. The server authorizes the session before streaming starts.
+3. The service checks for an existing completed exchange with the same request ID.
+4. It loads a bounded recent window from the selected session and authorizes any attachments.
+5. Gemini streams a response. The client validates stream events and renders incremental text.
+6. The user and assistant messages, exchange receipt, and session counters are persisted together after the model completes.
+7. Summary invalidation, insight invalidation, semantic indexing, and usage recording run through bounded post-write paths.
 
-Personal retrieval begins under:
+A failed model response does not persist a half-complete exchange. The request ID makes a supported retry idempotent.
 
-```text
-users/{verifiedUid}/personalMemories
-```
+Conversation generation is session-scoped. A new Journal reflection does not automatically inject earlier reflections into the conversation. Cross-reflection questions belong to Ask Me.
 
-Organization retrieval begins under:
+## Memory and Ask Me
 
-```text
-organizations/{authorizedOrgId}/memories
-```
+The memory layer has two derived forms:
 
-Scope is selected and authorized before the query. Retrieval never begins from a global cross-tenant candidate set. Every result retains source provenance and classification.
+- One structured summary per reflection with title, summary, themes, next steps, and source message IDs.
+- One semantic `memoryChunks` document per reflection containing bounded recent messages, summary, tags, extracted attachment text, provenance, and a 768-dimensional embedding.
 
-## 7. Personal-to-organization sharing
+Ask Me works in a user-selected personal or team scope:
 
-No automatic sharing is allowed. A future share flow must:
+1. The server authorizes the scope and lists only active sessions in that scope.
+2. It embeds the question and runs Firestore nearest-neighbor search inside the scope-rooted `memoryChunks` collection.
+3. Retrieved chunk IDs are checked against the authorized active-session set.
+4. Gemini receives a bounded evidence set and must return structured citations.
+5. The server accepts citations only when they name supplied sessions and message IDs and quote an exact supporting excerpt.
+6. When vector search is unavailable or finds no usable evidence, a bounded lexical search checks summaries and then recent messages.
 
-1. show the exact content and destination organization;
-2. require explicit confirmation;
-3. recheck active membership at execution time;
-4. create a new organization record rather than changing the private record's scope;
-5. record an action receipt and source provenance;
-6. leave the personal source protected;
-7. avoid silently syncing later private edits.
+The user can rebuild memory indexes from the Ask Me page, and reflection changes schedule index refresh. Answers remain grounded in authorized source records and expose source navigation to the user.
 
-## 8. Gemini boundary
+## Organization authorization
 
-The backend constructs a prompt from:
+The role matrix is centralized and enforced server-side. In broad terms:
 
-- system policy;
-- the current authenticated request;
-- the minimum authorized conversation window;
-- a bounded set of scope-specific retrieved records;
-- a strict output schema when machine processing is required.
+| Capability | Owner | Admin | Member | Viewer |
+|---|---:|---:|---:|---:|
+| Read shared reflections | Yes | Yes | Yes | Yes |
+| Create team reflections | Yes | Yes | Yes | No |
+| Change organization settings | Yes | Yes, within policy | No | No |
+| Invite or govern privileged members | Owner-controlled | Limited | No | No |
+| Read any member's personal journal | No | No | No | No |
 
-Retrieved content is delimited as untrusted evidence. It cannot change system policy, tenant selection, authorization, tool availability, or secret handling. Model output is validated and safely rendered before storage or use.
+Viewer-only teams are excluded from the Journal scope selector because viewers cannot create reflections. They remain available on the Teams and Ask Me read surfaces.
 
-## 9. Secrets and service identities
+Invitation secrets are random, single-use, expiring, and placed in the URL fragment. Only a digest is stored. Acceptance rechecks the invitation and membership in a transaction, and the client removes the fragment before continuing.
 
-- Cloud Run uses a dedicated runtime service account without a downloadable key.
-- The runtime receives only the Firestore permissions needed by the application and access to the specific Gemini secret.
-- Gemini credentials are stored in Secret Manager and delivered to the server at runtime.
-- Development and production credentials are separate.
-- CI does not receive production runtime secrets for ordinary tests.
-- No secret is placed in frontend configuration, source, logs, screenshots, fixtures, or documentation.
+## Attachments, voice, check-ins, and location
 
-## 10. Logging and privacy
+- Attachment metadata and Storage object paths are rooted in the selected personal or organization scope.
+- Up to three supported attachments may accompany a message. File type, size, ownership, and source session are validated server-side.
+- Voice recording is explicit and visible. Audio is sent for transient transcription and is not retained as a raw recording by the voice flow.
+- Personal check-ins are explicit self-reports. Mood and energy are bounded integers; emotions come from an allowlist.
+- Location is opt-in. Approximate coordinates are reduced in precision before persistence.
+- Personal signals and locations are not exposed through organization or platform-admin endpoints.
 
-Permitted operational fields include a request/correlation ID, route template, status class, latency, model identifier, retry count, and aggregated token/cost metrics. User or organization references are included only when needed and should be pseudonymous.
+## Insights
 
-Prohibited logging includes raw prompts, journal text, responses, retrieved passages, uploads, ID tokens, authorization headers, invite tokens, keys, and secret values.
+The dashboard computes 7, 30, and 90-day metrics from the user's own active reflections and check-ins. Daily and weekly recaps combine deterministic metrics with a schema-validated Gemini narrative. Evidence IDs must belong to the supplied source set. Repeated generation is protected by source fingerprints, request IDs, rate limits, and a Firestore lease.
 
-Summaries and embeddings inherit the source classification. Deleted sources must disappear from history and retrieval and must cascade to derived artifacts.
+Insights are not clinical assessments. The application must not infer diagnoses, employee performance, personality, or attrition.
 
-## 11. Web and abuse controls
+## Platform administration
 
-- exact-origin CORS;
-- restrictive CSP and standard secure headers;
-- explicit request and response size limits;
-- per-user and global rate/cost limits;
-- safe Markdown or plain-text rendering;
-- generic client errors and sanitized server diagnostics;
-- bounded timeouts, retries, and model context;
-- Cloud Run maximum instances and budget alerts.
+The first super admin is created by a reviewed offline script after the user has signed in. There is no public bootstrap route. Role and status changes require a live active super-admin record, recent authentication, a bounded operational reason, a transaction, and an audit event. The final active super admin cannot be removed.
 
-## 12. Security invariants suitable for automated tests
+Admin APIs expose operational account and organization metadata only. They intentionally have no path to personal sessions, messages, summaries, check-ins, locations, attachments, semantic memory, or Ask Me.
 
-- No protected handler reaches data access without verified identity.
-- No organization data access occurs without an active membership decision.
-- No personal query accepts a user ID other than the verified identity.
-- No semantic retrieval runs without an already-authorized scope.
-- No model call receives records from multiple tenant scopes.
-- No model output directly executes a side effect.
-- No source deletion completes while active derived retrieval artifacts remain.
-- No application secret is present in browser output or repository history.
+## AI and trust boundary
 
-## 13. Primary implementation references
+Gemini receives only context selected after deterministic authorization. User text, retrieved text, attachments, and model output are untrusted. They cannot select another tenant, change a role, enable a tool, reveal a secret, or authorize a side effect.
 
-- [Firebase: verify ID tokens](https://firebase.google.com/docs/auth/admin/verify-id-tokens)
-- [Firestore rules conditions](https://firebase.google.com/docs/firestore/security/rules-conditions)
-- [Firestore: rules are not filters](https://firebase.google.com/docs/firestore/security/rules-query)
-- [Cloud Run: configure secrets](https://cloud.google.com/run/docs/configuring/services/secrets)
-- [Gemini safety and prompt-injection guidance](https://ai.google.dev/gemini-api/docs/safety-guidance)
+Machine-consumed outputs use explicit schemas and reject malformed or foreign provenance. User-facing text is rendered through safe React output paths. The model has no general Firestore, IAM, Secret Manager, shell, network, or deployment tool.
+
+## Secrets and runtime identity
+
+The server reads `GEMINI_API_KEY`; the browser never does. In production, Cloud Run should receive that variable from a pinned Secret Manager secret version. The runtime uses a dedicated keyless service account with only the Firestore, Storage, optional Agent Platform, and secret-specific access actually required.
+
+Firebase web configuration and the Maps JavaScript key are browser-visible by design. They must be API-restricted and origin-restricted. No `VITE_*` value may be treated as confidential.
+
+## Availability and cost controls
+
+- Global IP and verified-user rate limits
+- Per-operation limits for model, upload, invitation, insight, and admin routes
+- Bounded input, conversation, retrieval, output, and attachment sizes
+- Provider timeouts and cancellation
+- Idempotent exchange persistence
+- Optional provider fallback using Cloud Run identity
+- Generic client errors with request IDs and content-free structured logs
+
+In-memory rate limits apply per running Cloud Run instance. Project quotas, budget alerts, and maximum-instance settings are still required production controls.
+
+## Verification
+
+Automated tests cover identity, authorization, tenancy, retrieval, model output, archive and deletion behavior, organization roles, administration, accessibility, and web security headers. The deployment checklist covers IAM, API restrictions, Firebase configuration, Storage privacy, monitoring, and production verification.

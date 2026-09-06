@@ -13,8 +13,8 @@ test.describe("public pages and application shell", () => {
 
     await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "How it works" }).click();
     await expect(page.getByRole("heading", { name: "How it works" })).toBeVisible();
-    await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "Intelligence" }).click();
-    await expect(page.getByRole("heading", { name: "A second brain that keeps context" })).toBeVisible();
+    await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: "For teams" }).click();
+    await expect(page.getByRole("heading", { name: "One memory layer. The right trust boundary." })).toBeVisible();
 
     await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Terms" })).toBeVisible();

@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unused-vars -- retained request helpers are shared with the Home workspace transition. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  AttachmentReference,
   OrganizationPermissions,
   OrganizationSession,
   OrganizationSessionDetail,
@@ -13,7 +11,6 @@ import { Chip } from "../ui/Chip";
 import { EmptyState } from "../ui/EmptyState";
 import { InlineAlert } from "../ui/InlineAlert";
 import { Skeleton } from "../ui/Skeleton";
-import { MaterialIcon } from "../MaterialIcon";
 import { FormattedMessage } from "../ui/FormattedMessage";
 import { PrivateMessageAttachments } from "../workspace/ConversationThread";
 import { ReflectionFilterPopover } from "../workspace/ReflectionFilterPopover";
@@ -28,7 +25,6 @@ type Props = {
 };
 
 type ListStatus = "loading" | "ready" | "error";
-const MAX_RECORDING_MS = 5 * 60 * 1_000;
 
 function authorLabel(
   authorUid: string | null,
@@ -50,30 +46,9 @@ export function OrgConversation({ api, orgId, currentUid, permissions, memberNam
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [detailPending, setDetailPending] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentReference[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadingAttachment, setUploadingAttachment] = useState(false);
-  const [pendingUploadName, setPendingUploadName] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
-  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
-  const [transcribedAttachmentIds, setTranscribedAttachmentIds] = useState<Set<string>>(() => new Set());
-  const imagePreviewsRef = useRef<Record<string, string>>({});
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const sendAbortControllerRef = useRef<AbortController | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const recordingStartedAtRef = useRef<number | null>(null);
-  const discardRecordingRef = useRef(false);
-
-  useEffect(() => {
-    imagePreviewsRef.current = imagePreviews;
-  }, [imagePreviews]);
   const [reloadToken, setReloadToken] = useState(0);
   const requestRef = useRef(0);
   const detailRequestRef = useRef(0);
@@ -85,36 +60,11 @@ export function OrgConversation({ api, orgId, currentUid, permissions, memberNam
     [api, orgId, selectedId],
   );
 
-  useEffect(() => () => {
-    sendAbortControllerRef.current?.abort();
-    recorderRef.current?.stop();
-    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-    Object.values(imagePreviewsRef.current).forEach((url) => URL.revokeObjectURL(url));
-  }, []);
-
-  useEffect(() => {
-    if (!recording) return;
-    const timer = window.setInterval(() => {
-      const startedAt = recordingStartedAtRef.current;
-      if (startedAt === null) return;
-      const elapsed = Date.now() - startedAt;
-      setRecordingElapsedMs(Math.min(elapsed, MAX_RECORDING_MS));
-      if (elapsed >= MAX_RECORDING_MS) {
-        setAttachmentError("The 5-minute recording limit was reached.");
-        recorderRef.current?.stop();
-      }
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [recording]);
-
   const open = useCallback(async (sessionId: string) => {
     const detailRequestId = ++detailRequestRef.current;
     setSelectedId(sessionId);
     setDetailPending(true);
     setActionError(null);
-    setAttachmentError(null);
-    setAttachments([]);
-    setTranscribedAttachmentIds(new Set());
     try {
         const loaded = await api.getOrganizationSession(orgId, sessionId);
         if (detailRequestRef.current !== detailRequestId) return;
@@ -165,247 +115,6 @@ export function OrgConversation({ api, orgId, currentUid, permissions, memberNam
       active = false;
     };
   }, [api, orgId]);
-
-  async function send() {
-    const content = draft.trim();
-    if (!detail || content === "" || sending) return;
-    const targetSessionId = detail.id;
-    const requestId = crypto.randomUUID();
-    const pendingUserId = `pending-${requestId}`;
-    const pendingAssistantId = `pending-assistant-${requestId}`;
-    const pendingAttachments = [...attachments];
-    const attachmentIds = pendingAttachments.map((attachment) => attachment.id);
-    const abortController = new AbortController();
-    sendAbortControllerRef.current = abortController;
-    setSending(true);
-    setActionError(null);
-    setDraft("");
-    setAttachments([]);
-    setDetail((current) => current && current.id === targetSessionId ? {
-      ...current,
-      messages: [
-        ...current.messages,
-        {
-          id: pendingUserId,
-          role: "user",
-          content,
-          ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
-          authorUid: currentUid,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: pendingAssistantId,
-          role: "model",
-          content: "",
-          authorUid: null,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    } : current);
-    try {
-      const exchange = await api.addOrganizationMessageStream(orgId, targetSessionId, {
-        requestId,
-        content,
-        attachmentIds,
-      }, (chunk) => {
-        setDetail((current) => current && current.id === targetSessionId ? {
-          ...current,
-          messages: current.messages.map((message) =>
-            message.id === pendingAssistantId ? { ...message, content: message.content + chunk } : message,
-          ),
-        } : current);
-      }, abortController.signal);
-      setAttachmentError(null);
-      Object.values(imagePreviewsRef.current).forEach((url) => URL.revokeObjectURL(url));
-      setImagePreviews({});
-      setTranscribedAttachmentIds(new Set());
-      setDetail((current) =>
-        current && current.id === targetSessionId
-          ? {
-              ...current,
-              ...(exchange.session ? { title: exchange.session.title, tags: exchange.session.tags } : {}),
-              messages: [
-                ...current.messages.filter((message) => message.id !== pendingUserId && message.id !== pendingAssistantId),
-                exchange.userMessage,
-                exchange.assistantMessage,
-              ],
-              messageCount: exchange.messageCount,
-            }
-          : current,
-      );
-      setSessions((current) => current.map((session) => session.id === targetSessionId ? {
-        ...session,
-        ...(exchange.session ? { title: exchange.session.title, tags: exchange.session.tags } : {}),
-        messageCount: exchange.messageCount,
-        updatedAt: exchange.assistantMessage.createdAt,
-      } : session));
-      setAnnouncement("Cognaxis replied.");
-    } catch (error) {
-      setDetail((current) => current && current.id === targetSessionId ? {
-        ...current,
-        messages: current.messages.filter((message) => message.id !== pendingUserId && message.id !== pendingAssistantId),
-      } : current);
-      setDraft(content);
-      setAttachments((current) => current.length === 0 ? pendingAttachments : current);
-      if (!abortController.signal.aborted) {
-        setActionError(error instanceof ApiError ? error.message : "Your message could not be sent.");
-      }
-    } finally {
-      if (sendAbortControllerRef.current === abortController) sendAbortControllerRef.current = null;
-      setSending(false);
-    }
-  }
-
-  async function uploadAttachment(file: File): Promise<AttachmentReference | null> {
-    if (!detail || uploading || attachments.length >= 3) return null;
-    setUploadingAttachment(true);
-    setPendingUploadName(file.name);
-    setUploading(true);
-    setAttachmentError(null);
-    try {
-      const attachment = await api.uploadOrganizationAttachment(orgId, detail.id, file);
-      setAttachments((current) => [...current, attachment]);
-      if (attachment.kind === "image") {
-        setImagePreviews((current) => ({ ...current, [attachment.id]: URL.createObjectURL(file) }));
-      }
-      return attachment;
-    } catch (error) {
-      setAttachmentError(error instanceof ApiError ? error.message : "The attachment could not be added.");
-      return null;
-    } finally {
-      setUploading(false);
-      setUploadingAttachment(false);
-      setPendingUploadName(null);
-    }
-  }
-
-  async function transcribeAttachment(attachment: AttachmentReference): Promise<boolean> {
-    if (!detail || attachment.kind !== "audio") return false;
-    setUploading(true);
-    try {
-      const transcript = await api.transcribeOrganizationAttachment(orgId, detail.id, attachment.id);
-      if (transcript.trim()) {
-        setDraft((current) => `${current.trim()}${current.trim() ? "\n" : ""}${transcript.trim()}`.slice(0, 8_000));
-        setTranscribedAttachmentIds((current) => new Set(current).add(attachment.id));
-        return true;
-      }
-      return false;
-    } catch (error) {
-      setAttachmentError(error instanceof ApiError ? error.message : "The voice note could not be transcribed.");
-      return false;
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    await uploadAttachment(file);
-    // File uploads are limited to images and documents. Voice input uses the transient
-    // transcription endpoint below and is never added to the team's attachment list.
-  }
-
-  async function toggleRecording() {
-    if (recording) {
-      recorderRef.current?.stop();
-      return;
-    }
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setAttachmentError("Voice recording is not supported in this browser.");
-      return;
-    }
-    const targetSessionId = detail?.id;
-    if (!targetSessionId) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg"]
-        .find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? "";
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      const chunks: Blob[] = [];
-      mediaStreamRef.current = stream;
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-      recorder.onerror = () => {
-        setRecording(false);
-        setAttachmentError("Voice recording could not be completed.");
-        stream.getTracks().forEach((track) => track.stop());
-      };
-      recorder.onstop = () => {
-        setRecording(false);
-        recordingStartedAtRef.current = null;
-        recorderRef.current = null;
-        mediaStreamRef.current = null;
-        stream.getTracks().forEach((track) => track.stop());
-        if (discardRecordingRef.current) {
-          discardRecordingRef.current = false;
-          setRecordingElapsedMs(0);
-          setAttachmentError(null);
-          return;
-        }
-        void (async () => {
-          setUploading(true);
-          try {
-            const transcript = await api.transcribeOrganizationVoice(
-              orgId,
-              targetSessionId,
-              new File(chunks, "voice-note.webm", { type: recorder.mimeType || "audio/webm" }),
-            );
-            if (transcript.trim()) {
-              setDraft((current) => `${current.trim()}${current.trim() ? "\n" : ""}${transcript.trim()}`.slice(0, 8_000));
-            }
-          } catch (error) {
-            setAttachmentError(error instanceof ApiError ? error.message : "The voice note could not be transcribed.");
-          } finally {
-            setUploading(false);
-            setRecordingElapsedMs(0);
-          }
-        })();
-      };
-      setAttachmentError(null);
-      discardRecordingRef.current = false;
-      setRecordingElapsedMs(0);
-      recordingStartedAtRef.current = Date.now();
-      setRecording(true);
-      recorder.start();
-    } catch {
-      setAttachmentError("Microphone access was unavailable.");
-    }
-  }
-
-  async function removeAttachment(attachmentId: string) {
-    if (!detail || sending) return;
-    try {
-      await api.deleteOrganizationAttachment(orgId, detail.id, attachmentId);
-      setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-      const previewUrl = imagePreviews[attachmentId];
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setImagePreviews((current) => {
-        const next = { ...current };
-        delete next[attachmentId];
-        return next;
-      });
-      setTranscribedAttachmentIds((current) => {
-        const next = new Set(current);
-        next.delete(attachmentId);
-        return next;
-      });
-    } catch (error) {
-      setAttachmentError(error instanceof ApiError ? error.message : "The attachment could not be removed.");
-    }
-  }
-
-  function discardRecording() {
-    if (!recording) return;
-    discardRecordingRef.current = true;
-    recorderRef.current?.stop();
-  }
-
-  const recordingSeconds = Math.floor(recordingElapsedMs / 1_000);
-  const formattedRecordingTime = `${String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:${String(recordingSeconds % 60).padStart(2, "0")}`;
 
   async function summarize() {
     if (!detail || detail.status !== "active" || summarizing) return;

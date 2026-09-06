@@ -1,126 +1,50 @@
-# Cognaxis Threat Model
+# Security Control Model
 
-Version: 1.2
-Status: Phase 2 baseline, extended for email/password authentication and the extended
-personal-intelligence, Maps, organization, and platform-administration features (T34–T44)
-Review trigger: Any change to identity, authorization, data model, retrieval, Gemini tools, uploads, voice, integrations, IAM, or deployment
+Last reviewed: 7 September 2026
 
-## 1. Method and assurance boundary
+This document summarizes the security boundaries implemented by Cognaxis and the evidence expected for each boundary.
 
-This model uses asset and trust-boundary analysis with STRIDE-style web/cloud threats and LLM-specific abuse cases. It describes intended controls, not proof that they are implemented. Control status must be updated during implementation and supported by tests or configuration evidence.
+## Protected data
 
-## 2. Protected assets
+| Data class | Scope |
+|---|---|
+| Personal reflections, messages, summaries, memories, attachments, check-ins, insights, and locations | Account owner only |
+| Organization reflections, summaries, attachments, membership, invitations, settings, and audit events | Active organization members according to role |
+| Platform account, status, usage, organization, and audit metadata | Active super administrators |
+| Authentication tokens, invitation secrets, API keys, and service credentials | Restricted processing only |
 
-| Asset | Classification | Primary harm |
+## Trust boundaries
+
+1. The browser authenticates through Firebase and is otherwise untrusted.
+2. Cloud Run verifies identity, validates input, and authorizes scope before application work.
+3. Firestore and Storage are accessed through the authorized backend using a dedicated runtime identity.
+4. Gemini receives only authorized, minimized evidence and has no independent database or cloud authority.
+5. Deployment configuration is protected through IAM, Secret Manager, API restrictions, and release verification.
+
+## Control matrix
+
+| Surface | Implemented controls | Verification |
 |---|---|---|
-| Personal journals, conversations, summaries, memories | Confidential | Privacy breach, psychological harm, loss of trust |
-| Organization updates, decisions, blockers, insights | Confidential | Tenant breach, business harm, surveillance misuse |
-| Embeddings and derived facts | Same as source | Inference or retrieval leakage |
-| Firebase ID tokens and invite tokens | Restricted | Account or membership abuse |
-| Account passwords | Restricted credential | Account takeover; handled only by Firebase Authentication and never stored, hashed, compared, proxied, or logged by Cognaxis |
-| Firebase refresh tokens | Restricted credential | Persistent account takeover; managed only by the Firebase JavaScript SDK |
-| Email-verification and password-reset action links | Restricted, short-lived | Account takeover; Firebase-managed, authorized domains only, never logged or captured |
-| Email verification status | Security-critical claim | Unverified access to private data; derived only from a verified token and enforced server-side |
-| Gemini/API credentials and cloud identity | Restricted | Data access, cost abuse, compromise |
-| Membership and role records | Security-critical | Privilege escalation |
-| Provenance and audit events | Integrity-critical | False evidence, repudiation |
-| Availability and quota | Operational | Denial of service or unexpected spend |
+| Authentication | Firebase-managed sign-in and session lifecycle; backend ID-token verification; verified-email and active-account gates | Authentication unit, integration, and browser journeys |
+| Personal data | UID derived from verified token; owner-rooted paths; authorization before reads and writes | Cross-user API and repository tests |
+| Firestore clients | Deny-all direct-client Security Rules | Firebase emulator rules tests |
+| Organizations | Active membership checks; centralized owner/admin/member/viewer policy; transactional revalidation | Role-matrix and cross-organization tests |
+| Invitations | Random expiring secret, digest storage, one-time transactional acceptance, sanitized browser handling | Service, repository, and browser tests |
+| Semantic retrieval | Scope authorization before search; scope-rooted memory; source and citation validation | Personal and organization retrieval tests |
+| Gemini | Server-only invocation; minimized authorized context; structured-output validation; safe rendering | Model contract, provenance, and prompt-boundary tests |
+| Attachments and voice | Type and size controls; authorized Storage access; transient voice handling | Limit, isolation, transcription, and cleanup tests |
+| Check-ins and insights | Explicit self-report schemas; deterministic metrics; authorized evidence | Signal, dashboard, and insight tests |
+| Location | Explicit user action; server-enforced precision; personal scope | Component, service, and privacy tests |
+| Platform administration | Live super-admin authorization; recent authentication; metadata-only responses; transactional audit | Admin API, service, and privacy tests |
+| Web/API | Exact-origin policy, secure headers, private caching, validation, request bounds, rate limits, sanitized errors | Middleware, header, validation, and browser tests |
+| Secrets and cloud identity | Secret Manager delivery, keyless runtime identity, least-privilege IAM, no client secret exposure | Repository checks, bundle inspection, and deployment review |
+| Deletion | Cascading removal or invalidation of primary and derived records | Service, repository, API, and browser tests |
 
-## 3. Actors
+## Release requirements
 
-- anonymous internet user;
-- authenticated ordinary user;
-- unverified email/password account holder;
-- attacker performing credential stuffing or password spraying;
-- attacker enumerating registered email addresses;
-- attacker attempting provider or account confusion;
-- malicious or compromised user;
-- organization member;
-- organization owner/administrator;
-- malicious uploaded or retrieved content;
-- compromised browser or dependency;
-- application runtime service account;
-- developer or CI workflow;
-- Gemini as an untrusted probabilistic component.
-
-## 4. Trust boundaries
-
-1. Browser to Firebase Authentication, including every password, registration, verification, and
-   reset operation. No credential crosses the Cognaxis backend boundary.
-2. Firebase Authentication popup, redirect, or hosted action page returning to the browser.
-3. Browser to public Cloud Run endpoint.
-4. Cloud Run authorization layer to Firestore.
-5. Cloud Run retrieval layer to semantic memory.
-6. Cloud Run prompt builder to Gemini.
-7. Cloud Run runtime identity to Secret Manager and Google Cloud APIs.
-8. Repository and CI to deployment artifacts.
-
-## 5. Threat register
-
-| ID | Threat and attack path | Required controls | Mandatory verification | Residual risk |
-|---|---|---|---|---|
-| T01 | Anonymous caller invokes a protected route. | Verify a Firebase ID token before protected processing; deny by default. | Every protected route returns a generic 401 without a token. | Public endpoint still receives traffic; rate limits remain necessary. |
-| T02 | Attacker submits a forged, expired, wrong-project, or revoked token. | Admin SDK verification; issuer/audience binding; revocation-aware checks for sensitive operations. | Token-negative test matrix. | Ordinary token revocation may be bounded by token lifetime unless checked on every request. |
-| T03 | User supplies another uid or ownerUid. | Ignore client identity fields; derive uid from verified token; reject server-authoritative fields. | User A cannot act on User B by changing body, query, route, or headers. | Authorization bugs in new handlers remain possible without centralized guards. |
-| T04 | User enumerates or guesses another personal object ID. | Ownership check on every object; non-sequential IDs; generic not-found/forbidden behavior. | Cross-user tests for read, update, delete, summarize, export, and retrieval. | Object existence timing differences require review. |
-| T05 | Org A member substitutes Org B's orgId or object ID. | Verify active membership before data access; verify target belongs to authorized org. | Cross-org matrix across every organization endpoint and retrieval path. | Complex future team scopes may add policy errors. |
-| T06 | User promotes themselves or abuses an invitation. | Server-controlled roles; authorized inviter; one-time expiring invite; transactional recheck; audit receipt. | Member cannot invite/promote/remove unless allowed; replayed/expired invite fails. | Compromised owner account retains legitimate owner powers. |
-| T07 | Organization owner accesses an employee's personal workspace. | Personal and organization authorization domains are independent; no role bridge. | Owner/admin receives no personal data through API, retrieval, analytics, export, or errors. | A user may voluntarily disclose similar information in organization scope. |
-| T08 | Direct Firestore client access bypasses the API. | Deny confidential client access in Firestore rules; do not ship privileged credentials. | Emulator tests deny anonymous and authenticated client reads/writes. | Server SDK bypasses rules; IAM and application authorization remain critical. |
-| T09 | Server service account is overprivileged. | Dedicated keyless identity; least-privilege Firestore access; secret-level accessor grant. | IAM evidence review; no Owner/Editor; no service-account keys. | Some Google predefined roles may still be broader than ideal. |
-| T10 | Global vector search reveals semantically similar records from another tenant. | Scope-specific collections/indexes; authorize before query; no post-retrieval tenant filtering. | Seed near-identical memories in different scopes and prove zero cross-scope candidates. | Datastore or index configuration drift can reintroduce leakage. |
-| T11 | Retrieved document instructs Gemini to ignore policy, switch tenant, reveal secrets, or call tools. | Treat content as delimited evidence; fixed server-selected scope/tools; validate outputs and actions independently. | Injection corpus cannot change tenant, tool allowlist, authorization, or secret handling. | Injection may still influence harmless generated prose. |
-| T12 | Model fabricates object IDs, roles, provenance, or action arguments. | Strict schemas; server lookup and authorization; reject unknown fields; action confirmation. | Fabricated and malformed outputs cannot read, write, or execute. | Valid-looking inaccurate prose remains possible and must be presented as AI output. |
-| T13 | Gemini or service credential appears in source, frontend bundle, response, log, or screenshot. | Secret Manager; server-only calls; repository and history scanning; log redaction. | Secret scan, bundle scan, response inspection, and log review. | A developer may disclose a secret outside repository controls. |
-| T14 | Raw private content appears in logs or monitoring. | Structured metadata-only logging; centralized redaction; no request/response body logging. | Canary private strings do not appear in logs, traces, errors, or alerts. | Third-party runtime errors need review for payload capture. |
-| T15 | Stored or reflected XSS through user or model text steals tokens or changes UI. | Safe rendering, no unsanitized HTML, CSP, output encoding, avoid persistent tokens in insecure storage. | XSS payload corpus renders inert; CSP verification. | Browser extensions and compromised dependencies remain outside complete control. |
-| T16 | Misconfigured CORS allows hostile origin access. | Exact origins, allowed headers/methods, no wildcard with credentials. | Preflight tests for approved and hostile origins. | CORS is not authorization; non-browser clients can still call public endpoints. |
-| T17 | Oversized prompts, loops, retries, or many accounts create denial of service or cost abuse. | Request/model bounds, per-user/global rate limits, timeouts, bounded retries, max instances, quotas and alerts. | Boundary and load tests; forced model failures do not create retry storms. | Distributed abuse may require stronger edge controls after MVP. |
-| T18 | Error response exposes stack traces, paths, queries, secrets, or tenant existence. | Generic client errors; sanitized structured server diagnostics; correlation IDs. | Fault injection and response/log review. | Rare framework-level failures must be tested in deployed configuration. |
-| T19 | Deleting a memory leaves an embedding, summary, cache, or citation retrievable. | Transactional deletion workflow or tombstone plus reliable cleanup; derived-artifact inventory. | Deleted source disappears from history, direct access, retrieval, summaries, and citations. | Asynchronous cleanup creates a bounded delay that must be visible and tested. |
-| T20 | Private content is silently copied into an organization. | No automatic transfer; explicit preview and confirmation; create a new org record; action receipt. | No background or model-driven share; canceled sharing creates nothing. | Users can intentionally share sensitive content and need clear UX. |
-| T21 | Supply-chain dependency or CI action executes malicious code. | Minimal dependencies, lockfiles, provenance review, immutable action SHAs, read-only workflow permissions, dependency scanning. | Dependency review and CI configuration audit. | Trusted upstream compromise remains possible. |
-| T22 | Repository history contains removed credentials or private fixtures. | Pre-commit and CI scanning; synthetic fixtures; rotate and purge immediately after exposure. | Full-history secret scan on every push. | Hosted forks or caches may preserve already-published material. |
-| T23 | File upload exploits parser, storage, or prompt processing. | Feature remains disabled until type/signature, size, decompression, malware, metadata, access, and injection controls are implemented. | Upload threat-model extension and adversarial file suite required before release. | Complex parser vulnerabilities cannot be eliminated completely. |
-| T24 | Voice records without awareness or retains raw audio unintentionally. | Feature remains disabled until visible recording state, consent, transport, retention, deletion, and fallback controls exist. | Verify raw audio is not retained by default and deletion is complete. | Provider-side processing terms and retention require review. |
-| T25 | Organization analytics become employee surveillance. | Analyze only organization-scope records; prohibit private-source ingestion and sensitive employee profiling. | Dataset lineage proves no personal sources; prohibited insight tests. | Organization-authored content may still contain personal information. |
-| T26 | Race condition changes membership between authorization and write. | Transactional authorization check or immediate recheck; idempotency and optimistic concurrency. | Concurrent remove/member-action tests. | Distributed timing edge cases require datastore-specific testing. |
-| T27 | Cached response or CDN serves confidential content to another user. | No public caching for authenticated responses; private/no-store headers; cache key includes verified scope if caching is approved. | Response-header and cross-session cache tests. | Browser history and local device compromise remain user-environment risks. |
-| T28 | Attacker performs credential stuffing or password spraying against email/password accounts. | Passwords are handled only by Firebase Authentication; Firebase project password policy in `Require` mode; Firebase's own attempt throttling; generic `Too many attempts` copy; submit controls disabled while a request is pending so a single client cannot amplify attempts. | Repeated-failure component tests show identical generic copy and a single in-flight request; Firebase quota and monitoring evidence recorded before release. | Firebase Authentication is a public endpoint. Distributed abuse is bounded by provider controls, and App Check remains a deferred defence in depth. |
-| T29 | Attacker determines whether an email address is registered by comparing messages, timing, or HTTP behaviour. | Firebase email-enumeration protection enabled in the project; a Cognaxis FirebaseUI locale that replaces every enumeration-revealing string; a Cognaxis error adapter that maps every credential outcome to one identical message; the forgot-password flow shows the same confirmation whether or not the address exists. | Unit tests assert one identical message across `user-not-found`, `wrong-password`, `invalid-credential`, and `user-disabled`; component tests compare the reset confirmation for known and unknown addresses. | Account creation still fails for an address already in use. The message is generic, but request timing may differ; this is a residual provider-level signal. |
-| T30 | Attacker floods a victim with verification or password-reset emails. | Firebase owns sending and its own quotas; the interface enforces a sixty-second cooldown that also applies after a failure so a rejected attempt cannot be retried immediately; the reset request is only ever issued from a submitted form. | Component tests confirm the cooldown engages after both success and failure and that the control is disabled while cooling down. | Client cooldowns are advisory. Firebase quotas and monitoring are the enforcing control. |
-| T31 | An account with an unverified email reaches private journal data. | `requireVerifiedEmail` middleware placed after authentication and before every handler, repository call, and model call; the value comes only from the verified token claim and is never accepted from a body, query, or header; the client state machine holds the account on a verification screen; a server `403` returns the client to that screen. | Integration tests assert `403 EMAIL_VERIFICATION_REQUIRED` on every private route, that no repository record or model call is created, and that client-supplied `emailVerified`, `uid`, `email`, and provider fields are ignored. | A verified address can later be lost or transferred at the mail provider; Firebase revocation and token expiry bound the exposure window. |
-| T32 | Google and email/password identities for one address are merged or confused. | One account per email in the Firebase project; no client-supplied email is ever used to merge identities; provider-conflict codes map to a single safe message that names no provider and confirms no account; FirebaseUI legacy sign-in recovery is not enabled. | Unit tests cover `account-exists-with-different-credential`, `credential-already-in-use`, and `provider-already-linked` mapping. | Automatic linking is not implemented. A user holding both identities for one address may need support assistance; this limitation is accepted for this iteration. |
-| T33 | Private interface state from a previous account remains visible after an account switch or sign-out. | The workspace renders only in the authenticated state and is keyed by the verified `uid`, so a change of identity remounts it with empty state; sign-out clears in-memory journal state before the Firebase sign-out call; the session-expired screen is reached only after private state has been discarded. | Component tests switch from User A to User B and assert User A's records are absent from the document and that every subsequent request carries User B's token. | Browser memory forensics and screenshots taken before sign-out remain outside application control. |
-
-| T34 | A suspended platform account keeps using established journal or extended routes. | One shared private pipeline resolves the live `platformUsers/{uid}` record after token verification and before every feature router; suspension returns a generic 403 on every private route. | Integration tests drive a suspended account across capabilities, journal, signal, insight, map, and organization routes and assert `ACCOUNT_SUSPENDED` with no repository or model call. | Suspension takes effect on the next request; an in-flight request completes. |
-| T35 | Mood or energy numbers are invented by the model, or check-in language becomes clinical. | Scores exist only through the strict 1–5 self-report schema; dashboard metrics are pure server calculations; the insight narrative is validated and rejected outright when it contains diagnostic, clinical, or risk-scoring terms; the disclaimer is a server constant. | Unit tests reject out-of-range and non-integer scores and forbidden narrative terms; dashboard tests prove missing values stay missing. | The term blocklist is finite; wording that implies judgment without matching a term can pass and relies on the system instruction. |
-| T36 | Location is collected silently, stored more precisely than the user chose, or leaks into logs, admin, organization, or model surfaces. | Geolocation is requested only from an explicit control; "approximate" is rounded server-side to two decimals before persistence; coordinates appear only in owner-scoped signal and map responses; logs carry route templates and error categories only; insight prompts receive at most the user-approved place label. | Component tests prove no geolocation call before the explicit action and journaling continues after denial; service tests prove rounding; canary tests assert coordinates are absent from admin, organization, and audit responses. | The browser Maps key is public by design and must be referrer- and API-restricted in Google Cloud; that restriction is deployment configuration, not code. |
-| T37 | Journal text prompt-injects the period insight into changing scope or citing foreign records. | Records enter the prompt as delimited untrusted evidence; the authorized source set is fixed server-side; the structured output is schema-validated; every cited evidence ID must be a subset of the supplied sources or the whole response is rejected and nothing is stored. | Unit tests feed adversarial model output with fabricated evidence IDs, unknown fields, and clinical claims and assert a 502 with no stored document; model input tests prove only the owner's in-period records are supplied. | Injection can still influence harmless generated prose inside the user's own recap. |
-| T38 | A generated insight survives its sources, or a repeated request doubles model cost. | Source fingerprints are pure functions of source IDs and update stamps; signal mutations and session deletion mark affected periods stale; generation reuses the stored result for an unchanged fingerprint or a repeated request ID; a transactional Firestore lease admits one in-flight generation per user and period across all server instances and expires after 60 seconds so a crashed instance cannot wedge it; a per-instance rate limit further bounds spend. | Unit tests cover reuse, repeated request IDs, explicit regeneration, staleness after mutation and deletion; the route test proves the 11th generation request in a window is refused. | Staleness marking after a failed listener write is recovered at the next explicit generation, which re-checks fingerprints. |
-| T39 | An organization member reaches another tenant, or a role acts above its authority. | Organization and membership are resolved server-side before any Firestore or model access; a non-member receives the same 404 as a missing organization; the full owner/admin/member/viewer matrix is a pure function enforced in the service; admins cannot govern admins; nobody mutates themselves or the owner. | The role/action matrix and cross-organization suites cover every route for every role, including suspended memberships and suspended organizations. | A compromised owner account retains legitimate owner powers. |
-| T40 | An invitation is stolen, replayed, tampered with, or accepted twice. | 32-byte secrets travel only in the URL fragment; only a SHA-256 hash is stored; comparison is constant-time; acceptance re-validates organization, invitation, expiry, and membership inside one transaction that also writes both membership edges, the counter, and the audit event; the client scrubs the fragment immediately. | Service tests cover tampering, expiry, revocation, cross-user replay, same-user retry, and simultaneous acceptance; a component test proves the URL is scrubbed before any request. | While a recipient signs in, the pending invitation is parked in sessionStorage; strict CSP bounds script access, and the value is cleared on completion. |
-| T41 | A revoked organization member or admin completes an in-flight write. | Every mutating repository transaction re-reads the acting user's membership (and the organization's status) inside the transaction and aborts when it is gone, suspended, or under-privileged. | A repository test removes the actor first and asserts the late mutation fails with no write. | None identified beyond datastore-level anomalies. |
-| T42 | An ordinary user reaches platform administration, or an admin reads private content. | `/admin` routes sit behind the shared pipeline plus a live super-admin check on the Firestore record; there is no admin endpoint for sessions, messages, memories, signals, insights, locations, or search; admin list responses are operational projections only. | Integration tests deny ordinary and suspended-admin accounts on every admin route; canary tests prove private journal text and session IDs never appear in any admin response. | Super admins see operational identity metadata (email, activity times) by design. |
-| T43 | The platform loses its last active super admin, or someone self-promotes. | No public bootstrap endpoint exists; the reviewed offline script initializes the first admin and the `platformControl/access` counter together; every role/status mutation is one transaction over target, counter, and audit that aborts below one active admin; self-targeting is rejected; mutations demand recent revocation-checked authentication and a bounded operational reason. | Tests cover self-target denial, last-admin protection under concurrent demotion, the uninitialized-counter fail-closed path, reason validation, and stale-authentication denial. | Console access to Firestore can still bypass application controls; that is the trusted-operator boundary. |
-| T44 | Aggregate analytics or audit records leak personal content or wellbeing data. | `platformUsageDaily` documents contain fixed event counters only; audit events have a fixed schema of IDs, changed fields, and the operational reason; counters are written by a recorder that never receives content; failed counts surface as "unavailable", never fabricated zeros. | Canary tests assert private phrases, emails, and coordinates are absent from usage and audit surfaces; overview tests distinguish null from zero. | The admin-supplied reason is free text; the interface instructs operators to keep private content out of it, and it is visible only on the admin audit surface. |
-
-## 6. Release blockers
-
-Release is blocked by:
-
-- a known Critical or High finding;
-- any failing T03, T04, T05, T07, T08, T10, T11, T13, T19, T20, T29, T31, T33, T37, T39, T40,
-  T42, or T43 verification;
-- any committed or deployed credential exposure;
-- undocumented external data transfer or retention;
-- a security claim without implementation and evidence;
-- an enabled gated feature without its threat-model extension.
-
-## 7. Review record
-
-| Version | Date | Scope | Reviewer | Outcome |
-|---|---|---|---|---|
-| 1.0 | 2026-08-30 | Phase 1 architecture baseline | Project owner review pending | Proposed |
-| 1.1 | 2026-08-31 | Email/password authentication, email verification, password reset (T28–T33) | Project owner review pending | Proposed |
-| 1.2 | 2026-09-03 | Extended features: platform suspension, signals and location, grounded insights, Maps, organization RBAC and invitations, super-admin operations, aggregate analytics (T34–T44) | Project owner review pending | Proposed |
+- Authentication and tenant-isolation tests pass.
+- Firestore Security Rules and required indexes are deployed.
+- No credentials or private production data are present in source, bundles, logs, or test artifacts.
+- Runtime identity and Secret Manager access follow least privilege.
+- High and Critical dependency findings are resolved or explicitly reviewed before release.
+- Production configuration is verified using the Cloud Setup Checklist.

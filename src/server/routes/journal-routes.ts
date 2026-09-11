@@ -266,6 +266,13 @@ export function createJournalRouter(
         response.setHeader("X-Accel-Buffering", "no");
         response.flushHeaders();
 
+        // Keep otherwise-idle streams alive while Gemini is thinking. Blank NDJSON lines are
+        // deliberately ignored by the client and do not alter the response protocol.
+        const heartbeat = setInterval(() => {
+          if (!response.writableEnded && !response.destroyed) response.write("\n");
+        }, 15_000);
+        heartbeat.unref();
+
         try {
           writeEvent({ type: "start", requestId });
 
@@ -329,6 +336,7 @@ export function createJournalRouter(
           });
           response.end();
         } finally {
+          clearInterval(heartbeat);
           request.off("aborted", abortIfDisconnected);
           response.off("close", abortIfDisconnected);
         }

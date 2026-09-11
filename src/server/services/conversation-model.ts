@@ -60,6 +60,11 @@ export type ReflectionClassification = {
   tags: string[];
 };
 
+// Cloud Run allows a five-minute request in production. Each provider gets up to 2.25 minutes,
+// so a primary timeout plus the one configured fallback still fits inside that request window
+// with time left to close the stream cleanly. Mid-stream responses are never replayed.
+const CONVERSATION_STREAM_TIMEOUT_MS = 135_000;
+
 const groundedMemoryOutputSchema = z.object({
   answer: z.string().trim().min(1).max(8_000),
   confidence: z.enum(["high", "medium", "low"]),
@@ -317,7 +322,7 @@ export class GeminiConversationModel implements ConversationModel {
           systemInstruction: this.instruction,
           maxOutputTokens: 1_200,
           thinkingConfig: { thinkingBudget: 0 },
-          httpOptions: { timeout: 30_000 },
+          httpOptions: { timeout: CONVERSATION_STREAM_TIMEOUT_MS },
           abortSignal: signal,
         },
       }))) {
@@ -351,7 +356,7 @@ export class GeminiConversationModel implements ConversationModel {
           systemInstruction: this.instruction,
           maxOutputTokens: 1_200,
           thinkingConfig: { thinkingBudget: 0 },
-          httpOptions: { timeout: 30_000 },
+          httpOptions: { timeout: CONVERSATION_STREAM_TIMEOUT_MS },
           abortSignal: signal,
         },
       }))) {

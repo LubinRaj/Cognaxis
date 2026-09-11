@@ -166,6 +166,10 @@ describe("Gemini request contract", () => {
       project: "agent-platform-fallback-test",
       location: "global",
     });
+    const primaryRequest = generateContentStream.mock.calls[0][0] as CapturedRequest;
+    const fallbackRequest = generateContentStream.mock.calls[1][0] as CapturedRequest;
+    expect(primaryRequest.config.httpOptions).toEqual({ timeout: 135_000 });
+    expect(fallbackRequest.config.httpOptions).toEqual({ timeout: 135_000 });
   });
 
   it("uses the configured Agent Platform fallback for Insights after an AI Studio failure", async () => {
@@ -245,7 +249,7 @@ describe("Gemini request contract", () => {
     const request = lastStreamRequest();
     expect(request.model).toBe("gemini-3.7-flash");
     expect(request.contents.map((turn) => turn.role)).toEqual(["user", "model", "user"]);
-    expect(request.config.httpOptions).toEqual({ timeout: 30_000 });
+    expect(request.config.httpOptions).toEqual({ timeout: 135_000 });
     expect(request.config.thinkingConfig).toEqual({ thinkingBudget: 0 });
   });
 
